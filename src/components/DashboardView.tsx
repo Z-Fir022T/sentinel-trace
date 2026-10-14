@@ -25,10 +25,6 @@ interface DashboardViewProps {
   onSelectIp: (ip: string) => void;
   onSelectLog: (log: CanaryAccessLog) => void;
   onNavigateTab: (tab: string) => void;
-  onTriggerTest: () => void;
-  isTesting: boolean;
-  onSimulateScenario: (scenario: string, email: string) => Promise<void>;
-  defaultEmail: string;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -37,10 +33,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectIp,
   onSelectLog,
   onNavigateTab,
-  onTriggerTest,
-  isTesting,
-  onSimulateScenario,
-  defaultEmail,
 }) => {
   const [filterThreat, setFilterThreat] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -59,15 +51,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       l.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
       l.clientType.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesThreat && matchesSearch;
-  });
-
-  // Unique geographic points for radar map projection
-  const mapPoints = logs.slice(0, 15).map((log) => {
-    // Project lat/lon to percentage of a 800x400 map
-    // lon [-180, 180] -> [0, 100]%, lat [90, -90] -> [0, 100]%
-    const x = ((log.longitude + 180) / 360) * 100;
-    const y = ((90 - log.latitude) / 180) * 100;
-    return { ...log, x: Math.max(5, Math.min(95, x)), y: Math.max(10, Math.min(90, y)) };
   });
 
   return (
@@ -179,14 +162,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Live Interactive Leaflet Map for Real Attacker Geolocation & Compromised Email Status */}
-      <LiveLeafletMap
-        logs={logs}
-        selectedLog={null}
-        onSelectLog={onSelectLog}
-        onSimulateScenario={onSimulateScenario}
-        isSimulating={isTesting}
-        defaultEmail={defaultEmail}
-      />
+      <LiveLeafletMap logs={logs} selectedLog={null} onSelectLog={onSelectLog} />
 
       {/* Live Exfiltration Stream & Access Log Table */}
       <div className="p-5 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-4">
@@ -322,7 +298,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <td className="py-3 px-3 font-sans">
                         <div className="flex items-center gap-1.5 text-zinc-200">
                           <span>{log.countryCode === 'US' ? '🇺🇸' : log.countryCode === 'DE' ? '🇩🇪' : log.countryCode === 'GB' ? '🇬🇧' : '🌐'}</span>
-                          <span>{log.city}, {log.country}</span>
+                          <span>{[log.city, log.country].filter(Boolean).join(', ') || 'Sin geolocalización'}</span>
                         </div>
                         <div className="text-[10px] text-zinc-500 font-mono">
                           ISP: {log.isp}

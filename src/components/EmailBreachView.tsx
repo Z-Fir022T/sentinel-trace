@@ -25,8 +25,9 @@ interface EmailBreachViewProps {
 }
 
 export const EmailBreachView: React.FC<EmailBreachViewProps> = ({ onSearchBreach, initialQuery }) => {
-  const [query, setQuery] = useState<string>(initialQuery || 'ianhazael.a.l@gmail.com');
+  const [query, setQuery] = useState<string>(initialQuery || '');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<EmailBreachAuditResult | null>(null);
   const [completedTasks, setCompletedTasks] = useState<Record<string, boolean>>({});
 
@@ -34,21 +35,20 @@ export const EmailBreachView: React.FC<EmailBreachViewProps> = ({ onSearchBreach
     const q = targetQuery || query;
     if (!q) return;
     setLoading(true);
-    const data = await onSearchBreach(q);
-    setResult(data);
-    setLoading(false);
+    setError(null);
+    try {
+      setResult(await onSearchBreach(q));
+    } catch (err: any) {
+      setResult(null);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleTask = (id: string) => {
     setCompletedTasks((prev) => ({ ...prev, [id]: !prev[id] }));
   };
-
-  const sampleQueries = [
-    { label: 'ianhazael.a.l@gmail.com', query: 'ianhazael.a.l@gmail.com' },
-    { label: 'ceo@corporate.internal', query: 'ceo@corporate.internal' },
-    { label: 'admin@infostealer-test.com', query: 'admin@infostealer-test.com' },
-    { label: 'clean-audit@secure.corp', query: 'clean-audit@secure.corp' },
-  ];
 
   const handleExportJson = () => {
     if (!result) return;
@@ -85,7 +85,7 @@ export const EmailBreachView: React.FC<EmailBreachViewProps> = ({ onSearchBreach
             <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input
               type="text"
-              placeholder="Enter email address (e.g. user@company.com) or domain..."
+              placeholder="correo@dominio.com"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -106,22 +106,9 @@ export const EmailBreachView: React.FC<EmailBreachViewProps> = ({ onSearchBreach
           </button>
         </div>
 
-        {/* Quick Demo Samples */}
-        <div className="flex flex-wrap items-center gap-2 text-xs pt-1">
-          <span className="text-zinc-500 text-[11px] font-mono">Quick Triage Samples:</span>
-          {sampleQueries.map((sample) => (
-            <button
-              key={sample.query}
-              onClick={() => {
-                setQuery(sample.query);
-                handleSearch(sample.query);
-              }}
-              className="px-2.5 py-1 rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 font-mono text-[11px] transition-colors"
-            >
-              {sample.label}
-            </button>
-          ))}
-        </div>
+        {error && (
+          <div className="p-3 rounded-lg bg-red-950/40 border border-red-800/60 text-xs text-red-200">{error}</div>
+        )}
       </div>
 
       {/* Results View */}

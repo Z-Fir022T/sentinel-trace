@@ -62,8 +62,8 @@ Generated: ${new Date().toISOString()}
 - Target Canary Document: ${log.tokenName} (ID: ${log.tokenId})
 - Timestamp: ${log.timestamp}
 - Caller IP: ${log.ip}
-- Location: ${log.city}, ${log.region}, ${log.country} (${log.countryCode})
-- Coordinates: ${log.latitude}, ${log.longitude}
+- Location: ${[log.city, log.region, log.country].filter(Boolean).join(', ') || 'N/D'}
+- Coordinates: ${log.latitude != null ? `${log.latitude}, ${log.longitude}` : 'N/D'}
 - ISP / Autonomous System: ${log.isp} (${log.asn})
 - Client Signature: ${log.clientType}
 - User-Agent: ${log.userAgent}
@@ -153,11 +153,11 @@ ${aiReport || 'No AI memo generated yet.'}
             </div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Location:</span>
-              <span className="text-zinc-200">{log.city}, {log.country}</span>
+              <span className="text-zinc-200">{[log.city, log.country].filter(Boolean).join(', ') || 'Sin geolocalización'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Coordinates:</span>
-              <span className="text-zinc-300">{log.latitude}, {log.longitude}</span>
+              <span className="text-zinc-300">{log.latitude != null ? `${log.latitude}, ${log.longitude}` : 'N/D'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Network / ISP:</span>
@@ -171,25 +171,25 @@ ${aiReport || 'No AI memo generated yet.'}
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Correo Auditado:</span>
               <span className="text-zinc-100 font-semibold truncate max-w-[170px]" title={log.associatedEmail}>
-                {log.associatedEmail || 'ianhazael.a.l@gmail.com'}
+                {log.associatedEmail || 'Sin correo asociado'}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">¿Comprometido?:</span>
               <span className={log.isEmailCompromised ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
-                {log.isEmailCompromised ? '🚨 SÍ, COMPROMETIDO' : '✅ SEGURO / LIMPIO'}
+                {log.isEmailCompromised === undefined ? 'SIN CONSULTAR' : log.isEmailCompromised ? 'SÍ, COMPROMETIDO' : 'SIN BRECHAS CONOCIDAS'}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Score de Riesgo:</span>
               <span className={log.isEmailCompromised ? 'text-red-400 font-bold' : 'text-emerald-400'}>
-                {log.emailRiskScore || (log.isEmailCompromised ? 94 : 8)} / 100
+                {log.emailRiskScore != null ? `${log.emailRiskScore} / 100` : 'N/D'}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-zinc-400">Filtraciones:</span>
-              <span className="text-zinc-300 truncate max-w-[170px]" title={log.emailBreachDetails?.join(', ') || 'Stealer Logs'}>
-                {log.emailBreachDetails?.join(', ') || (log.isEmailCompromised ? 'Lumma Stealer / Collection #1' : 'Ninguna')}
+              <span className="text-zinc-300 truncate max-w-[170px]" title={log.emailBreachDetails?.join(', ') || ''}>
+                {log.emailBreachDetails?.join(', ') || (log.isEmailCompromised === undefined ? 'N/D' : 'Ninguna')}
               </span>
             </div>
           </div>

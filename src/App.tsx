@@ -17,10 +17,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [tokens, setTokens] = useState<CanaryToken[]>([]);
   const [logs, setLogs] = useState<CanaryAccessLog[]>([]);
-  const [selectedIp, setSelectedIp] = useState<string>('198.51.100.42');
+  const [selectedIp, setSelectedIp] = useState<string>('');
   const [selectedLog, setSelectedLog] = useState<CanaryAccessLog | null>(null);
-  const [isTesting, setIsTesting] = useState(false);
-  const [initialBreachQuery, setInitialBreachQuery] = useState('ianhazael.a.l@gmail.com');
+  const [initialBreachQuery, setInitialBreachQuery] = useState('');
   const [publicServerUrl, setPublicServerUrl] = useState<string>('');
 
   // Load system public config
@@ -87,45 +86,8 @@ export default function App() {
     return null;
   };
 
-  // Play subtle high-tech SOC tone on beacon hit
-  const playAlertSound = () => {
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.08, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.16);
-    } catch {
-      // Audio autoplay policies
-    }
-  };
-
-  // Trigger test ping (simulates someone opening an Excel spreadsheet)
-  const handleTriggerPing = async (tokenId?: string) => {
-    setIsTesting(true);
-    const targetTokenId = tokenId || (tokens[0]?.id || 'cnry-exec-salary-2026');
-    try {
-      const res = await fetch(`/api/canary/ping/${targetTokenId}?ref=simulation_test_trigger`);
-      if (res.ok) {
-        playAlertSound();
-        await loadData();
-      }
-    } catch (err) {
-      console.error('Simulation trigger failed:', err);
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
   // Check email or domain breach
-  const handleSearchBreach = async (query: string): Promise<EmailBreachAuditResult | null> => {
+  const handleSearchBreach = async (query: string): Promise<EmailBreachAuditResult> => {
     try {
       const res = await fetch('/api/breach/check', {
         method: 'POST',
@@ -133,13 +95,11 @@ export default function App() {
         body: JSON.stringify({ query }),
       });
       const data = await res.json();
-      if (data.success) {
-        return data;
-      }
-    } catch (err) {
-      console.error('Breach lookup failed:', err);
+      if (data.success) return data;
+      throw new Error(data.error || 'No se pudo consultar el correo.');
+    } catch (err: any) {
+      throw new Error(err?.message || 'No se pudo consultar el correo.');
     }
-    return null;
   };
 
   // IP Intelligence lookup
@@ -167,30 +127,6 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
-  // Simulate an attacker opening the Excel file from a specific location
-  const handleSimulateScenario = async (scenario: string, email: string) => {
-    setIsTesting(true);
-    try {
-      const res = await fetch('/api/canary/simulate-attacker', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenario,
-          email: email || initialBreachQuery,
-          tokenId: tokens[0]?.id,
-        }),
-      });
-      if (res.ok) {
-        playAlertSound();
-        await loadData();
-      }
-    } catch (err) {
-      console.error('Failed to simulate attacker:', err);
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-emerald-500/30 selection:text-emerald-300">
       {/* Top Header */}
@@ -199,8 +135,6 @@ export default function App() {
         setActiveTab={setActiveTab}
         canaryCount={tokens.length}
         totalHits={logs.length}
-        onQuickTestPing={() => handleTriggerPing()}
-        isTesting={isTesting}
       />
 
       {/* Main Content Area */}
@@ -212,10 +146,6 @@ export default function App() {
             onSelectIp={handleSelectIp}
             onSelectLog={(log) => setSelectedLog(log)}
             onNavigateTab={(tab) => setActiveTab(tab)}
-            onTriggerTest={() => handleTriggerPing()}
-            isTesting={isTesting}
-            onSimulateScenario={handleSimulateScenario}
-            defaultEmail={initialBreachQuery}
           />
         )}
 
@@ -223,7 +153,6 @@ export default function App() {
           <CanaryManagerView
             tokens={tokens}
             onCreateToken={handleCreateToken}
-            onTriggerPing={handleTriggerPing}
             onSelectTokenLogs={handleSelectTokenLogs}
             appUrl={publicServerUrl || window.location.origin}
           />

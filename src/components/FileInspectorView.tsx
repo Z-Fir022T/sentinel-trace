@@ -17,7 +17,7 @@ import {
   Zap
 } from 'lucide-react';
 import { ExcelScanResult } from '../types/threat';
-import { analyzeExcelFile, generateCanarySpreadsheet } from '../utils/excelGenerator';
+import { analyzeExcelFile } from '../utils/excelGenerator';
 
 export const FileInspectorView: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
@@ -42,33 +42,6 @@ export const FileInspectorView: React.FC = () => {
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFileUpload(e.dataTransfer.files[0]);
     }
-  };
-
-  // Inspect sample tracking document
-  const handleInspectTrackingSample = async () => {
-    setIsScanning(true);
-    const { blob } = generateCanarySpreadsheet(
-      'payroll',
-      'https://sentinel-defense.corp/api/canary/ping/cnry-sample-target-ip',
-      'https://sentinel-defense.corp/api/canary/beacon.png'
-    );
-    const sampleFile = new File([blob], 'Confidential_Executive_Payroll_Sample.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    const result = await analyzeExcelFile(sampleFile);
-    setScanResult(result);
-    setIsScanning(false);
-  };
-
-  // Inspect clean document sample
-  const handleInspectCleanSample = async () => {
-    setIsScanning(true);
-    // Create pure clean CSV/XLSX
-    const content = 'Month,Revenue,Expenses,Net Profit\nJan,12000,8000,=B2-C2\nFeb,15000,9000,=B3-C3\nMar,18000,9500,=B4-C4';
-    const sampleFile = new File([content], 'Clean_Financial_Quarterly_Report.csv', { type: 'text/csv' });
-    const result = await analyzeExcelFile(sampleFile);
-    setScanResult(result);
-    setIsScanning(false);
   };
 
   return (
@@ -128,26 +101,6 @@ export const FileInspectorView: React.FC = () => {
           Select Spreadsheet File
         </label>
 
-        {/* Demo buttons */}
-        <div className="pt-2 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] text-zinc-500 font-mono">Test Inspection With Pre-built Samples:</span>
-          <button
-            onClick={handleInspectTrackingSample}
-            disabled={isScanning}
-            className="px-2.5 py-1 text-xs rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-amber-300 font-medium transition-colors flex items-center gap-1.5"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Sample With Tracking Beacon</span>
-          </button>
-          <button
-            onClick={handleInspectCleanSample}
-            disabled={isScanning}
-            className="px-2.5 py-1 text-xs rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-emerald-300 font-medium transition-colors flex items-center gap-1.5"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Sample Clean Spreadsheet</span>
-          </button>
-        </div>
       </div>
 
       {/* Loading state */}

@@ -24,7 +24,6 @@ import { DECOY_TEMPLATES, generateCanarySpreadsheet, downloadBlob } from '../uti
 interface CanaryManagerViewProps {
   tokens: CanaryToken[];
   onCreateToken: (tokenData: Partial<CanaryToken>) => Promise<CanaryToken | null>;
-  onTriggerPing: (tokenId: string) => Promise<void>;
   onSelectTokenLogs: (tokenId: string) => void;
   appUrl: string;
 }
@@ -32,7 +31,6 @@ interface CanaryManagerViewProps {
 export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
   tokens,
   onCreateToken,
-  onTriggerPing,
   onSelectTokenLogs,
   appUrl,
 }) => {
@@ -41,11 +39,10 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
   const [trackingType, setTrackingType] = useState<'excel_webservice' | 'excel_image' | 'web_beacon'>('excel_webservice');
   const [docName, setDocName] = useState<string>('Executive_Compensation_Q4_Audit.xlsx');
   const [notifyEmail, setNotifyEmail] = useState<string>('soc-alerts@enterprise.internal');
-  const [associatedEmail, setAssociatedEmail] = useState<string>('ianhazael.a.l@gmail.com');
+  const [associatedEmail, setAssociatedEmail] = useState<string>('');
   const [notes, setNotes] = useState<string>('Planted in finance shared drive folder.');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [testingId, setTestingId] = useState<string | null>(null);
 
   const getBeaconUrl = (tokenId: string) => {
     const base = appUrl || window.location.origin;
@@ -100,12 +97,6 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
       const { blob, filename } = generateCanarySpreadsheet(created.decoyCategory, beaconUrl, imageUrl, created.filename);
       downloadBlob(blob, filename);
     }
-  };
-
-  const handleTestPing = async (tokenId: string) => {
-    setTestingId(tokenId);
-    await onTriggerPing(tokenId);
-    setTestingId(null);
   };
 
   return (
@@ -213,7 +204,7 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
                     <div className="flex flex-wrap items-center gap-3 text-[11px] text-zinc-500 font-mono mt-2">
                       <span>TOKEN ID: {token.id}</span>
                       <span>&middot;</span>
-                      <span>MONITORED EMAIL: <span className="text-emerald-400 font-semibold">{token.associatedEmail || 'ianhazael.a.l@gmail.com'}</span></span>
+                      <span>MONITORED EMAIL: <span className="text-emerald-400 font-semibold">{token.associatedEmail || 'Sin correo'}</span></span>
                       {token.notifyEmail && (
                         <>
                           <span>&middot;</span>
@@ -273,16 +264,6 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleTestPing(token.id)}
-                    disabled={testingId === token.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 transition-colors disabled:opacity-50"
-                    title="Simulate someone opening this Excel document right now"
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>{testingId === token.id ? 'Pinging...' : 'Simulate Open'}</span>
-                  </button>
-
                   <button
                     onClick={() => onSelectTokenLogs(token.id)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors"
@@ -427,7 +408,7 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
                     onChange={(e) => setAssociatedEmail(e.target.value)}
                     required
                     className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-emerald-500 font-mono"
-                    placeholder="ianhazael.a.l@gmail.com"
+                    placeholder="correo@dominio.com"
                   />
                 </div>
                 <div>

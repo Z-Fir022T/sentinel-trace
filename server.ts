@@ -1,3 +1,4 @@
+import { promises as dns } from 'node:dns';
 import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -154,8 +155,8 @@ export interface CanaryAccessLog {
   countryCode: string;
   city: string;
   region: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   isp: string;
   asn: string;
   isDatacenter: boolean;
@@ -183,149 +184,8 @@ export interface BreachRecord {
   sourceType: 'Public Breach' | 'Infostealer Log (Redline/Lumma)' | 'Dark Web Dump' | 'Combolist';
 }
 
-// Initial seed canaries
-const canaryTokens: CanaryToken[] = [
-  {
-    id: 'cnry-exec-salary-2026',
-    name: 'Executive Compensation & Bonus Q4.xlsx',
-    filename: 'Executive_Compensation_Q4_Confidential.xlsx',
-    description: 'Decoy spreadsheet planted in executive shared drive to detect unauthorized internal exfiltration.',
-    type: 'excel_webservice',
-    decoyCategory: 'payroll',
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    hitsCount: 3,
-    lastHitAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-    notifyEmail: 'soc-alerts@internal.corp',
-    associatedEmail: 'ianhazael.a.l@gmail.com',
-    status: 'active',
-  },
-  {
-    id: 'cnry-aws-root-keys',
-    name: 'AWS_Production_Keys_Backup.xlsx',
-    filename: 'AWS_Production_Keys_Backup.xlsx',
-    description: 'Honeytoken spreadsheet containing simulated IAM cloud credentials and automatic ping beacon.',
-    type: 'excel_webservice',
-    decoyCategory: 'cloud_keys',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    hitsCount: 1,
-    lastHitAt: new Date(Date.now() - 3600000 * 18).toISOString(),
-    notifyEmail: 'soc-alerts@internal.corp',
-    associatedEmail: 'admin@finance-corp.com',
-    status: 'active',
-  },
-  {
-    id: 'cnry-customer-pii-eu',
-    name: 'Customer_GDPR_Records_Export_v2.xlsx',
-    filename: 'Customer_GDPR_Records_Export_v2.xlsx',
-    description: 'Planted on public cloud bucket backup to detect accidental exposure and external scraping.',
-    type: 'excel_image',
-    decoyCategory: 'customer_pii',
-    createdAt: new Date(Date.now() - 86400000 * 1).toISOString(),
-    hitsCount: 0,
-    notifyEmail: 'compliance@internal.corp',
-    associatedEmail: 'ianhazael.a.l@gmail.com',
-    status: 'active',
-  },
-];
-
-// Initial seed access logs
-const accessLogs: CanaryAccessLog[] = [
-  {
-    id: 'log-seed-101',
-    tokenId: 'cnry-exec-salary-2026',
-    tokenName: 'Executive Compensation & Bonus Q4.xlsx',
-    timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
-    ip: '198.51.100.42',
-    userAgent: 'Microsoft Office Excel 2016 (16.0.14326) Windows NT 10.0',
-    referer: 'local_file_open',
-    method: 'GET',
-    country: 'United States',
-    countryCode: 'US',
-    city: 'San Jose',
-    region: 'California',
-    latitude: 37.3382,
-    longitude: -121.8863,
-    isp: 'Comcast Business',
-    asn: 'AS7922 Comcast Cable Communications',
-    isDatacenter: false,
-    isVpnOrProxy: false,
-    isTor: false,
-    clientType: 'Excel / Office Engine',
-    threatLevel: 'High',
-    associatedEmail: 'ianhazael.a.l@gmail.com',
-    isEmailCompromised: true,
-    emailBreachCount: 3,
-    emailRiskScore: 94,
-    emailBreachDetails: ['Collection #1', 'LummaC2 Stealer', 'DarkWeb ComboList 2026'],
-    rawHeaders: {
-      'user-agent': 'Microsoft Office Excel 2016 (16.0.14326) Windows NT 10.0',
-      'accept': '*/*',
-    },
-  },
-  {
-    id: 'log-seed-102',
-    tokenId: 'cnry-aws-root-keys',
-    tokenName: 'AWS_Production_Keys_Backup.xlsx',
-    timestamp: new Date(Date.now() - 3600000 * 18).toISOString(),
-    ip: '185.220.101.5',
-    userAgent: 'python-requests/2.31.0',
-    referer: '',
-    method: 'GET',
-    country: 'Germany',
-    countryCode: 'DE',
-    city: 'Frankfurt',
-    region: 'Hesse',
-    latitude: 50.1109,
-    longitude: 8.6821,
-    isp: 'Zwiebelfreunde e.V.',
-    asn: 'AS200651 Flokinet Ltd',
-    isDatacenter: true,
-    isVpnOrProxy: true,
-    isTor: true,
-    clientType: 'Headless Script',
-    threatLevel: 'Critical',
-    associatedEmail: 'admin@finance-corp.com',
-    isEmailCompromised: true,
-    emailBreachCount: 2,
-    emailRiskScore: 88,
-    emailBreachDetails: ['Collection #1', 'Nitro PDF Cloud Incident'],
-    rawHeaders: {
-      'user-agent': 'python-requests/2.31.0',
-      'host': 'canary.internal.corp',
-    },
-  },
-  {
-    id: 'log-seed-103',
-    tokenId: 'cnry-exec-salary-2026',
-    tokenName: 'Executive Compensation & Bonus Q4.xlsx',
-    timestamp: new Date(Date.now() - 86400000).toISOString(),
-    ip: '104.28.244.18',
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    referer: 'https://mail.external-service.net/',
-    method: 'GET',
-    country: 'United Kingdom',
-    countryCode: 'GB',
-    city: 'London',
-    region: 'England',
-    latitude: 51.5074,
-    longitude: -0.1278,
-    isp: 'Cloudflare WARP',
-    asn: 'AS13335 Cloudflare, Inc.',
-    isDatacenter: true,
-    isVpnOrProxy: true,
-    isTor: false,
-    clientType: 'Web Browser',
-    threatLevel: 'Medium',
-    associatedEmail: 'ianhazael.a.l@gmail.com',
-    isEmailCompromised: true,
-    emailBreachCount: 3,
-    emailRiskScore: 94,
-    emailBreachDetails: ['Collection #1', 'LummaC2 Stealer', 'Canva Breach'],
-    rawHeaders: {
-      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    },
-  },
-];
+const canaryTokens: CanaryToken[] = [];
+const accessLogs: CanaryAccessLog[] = [];
 
 // Helper: Inspect user agent for client type
 function parseClientType(userAgent: string = ''): 'Excel / Office Engine' | 'Web Browser' | 'Curl / Automated Bot' | 'Headless Script' {
@@ -342,199 +202,127 @@ function parseClientType(userAgent: string = ''): 'Excel / Office Engine' | 'Web
   return 'Web Browser';
 }
 
-// Helper: Simulated / Real IP enricher
-async function enrichIp(ip: string) {
-  let cleanIp = ip.replace(/^.*:/, '');
-  if (!cleanIp || cleanIp === '1' || cleanIp === '127.0.0.1' || cleanIp.startsWith('10.') || cleanIp.startsWith('192.168.')) {
-    return {
-      ip: cleanIp || '127.0.0.1',
-      country: 'Local Subnet / Defender Host',
-      countryCode: 'US',
-      city: 'Local Enclave',
-      region: 'Security Operations Subnet',
-      latitude: 37.7749,
-      longitude: -122.4194,
-      isp: 'Internal Enterprise Network',
-      asn: 'AS-PRIVATE (Internal Dev Host)',
-      isDatacenter: false,
-      isVpnOrProxy: false,
-      isTor: false,
-      threatScore: 5,
-    };
-  }
+// Helper: real IP enrichment via ip-api.com; unresolved IPs carry null coordinates (never invented)
+interface IpGeo {
+  ip: string;
+  resolved: boolean;
+  country: string;
+  countryCode: string;
+  city: string;
+  region: string;
+  latitude: number | null;
+  longitude: number | null;
+  isp: string;
+  asn: string;
+  isDatacenter: boolean;
+  isVpnOrProxy: boolean;
+  isTor: boolean;
+  threatScore: number;
+}
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`http://ip-api.com/json/${cleanIp}?fields=status,country,countryCode,regionName,city,lat,lon,isp,as,hosting,proxy`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.status === 'success') {
-        const isDatacenter = !!data.hosting;
-        const isVpnOrProxy = !!data.proxy;
-        const threatScore = isVpnOrProxy ? 75 : isDatacenter ? 60 : 25;
-        return {
-          ip: cleanIp,
-          country: data.country || 'Unknown',
-          countryCode: data.countryCode || 'UN',
-          city: data.city || 'Unknown City',
-          region: data.regionName || 'Unknown Region',
-          latitude: data.lat || 0,
-          longitude: data.lon || 0,
-          isp: data.isp || 'Internet Service Provider',
-          asn: data.as || 'AS Unknown',
-          isDatacenter,
-          isVpnOrProxy,
-          isTor: isVpnOrProxy && (data.isp || '').toLowerCase().includes('tor'),
-          threatScore,
-        };
-      }
-    }
-  } catch (err) {
-    // Fallback if external API is unreachable
-  }
-
-  const isSuspicious = cleanIp.startsWith('185.') || cleanIp.startsWith('45.');
+function unresolvedGeo(ip: string, reason: string): IpGeo {
   return {
-    ip: cleanIp,
-    country: isSuspicious ? 'Netherlands' : 'United States',
-    countryCode: isSuspicious ? 'NL' : 'US',
-    city: isSuspicious ? 'Amsterdam' : 'Ashburn',
-    region: isSuspicious ? 'North Holland' : 'Virginia',
-    latitude: isSuspicious ? 52.3676 : 39.0438,
-    longitude: isSuspicious ? 4.9041 : -77.4874,
-    isp: isSuspicious ? 'Offshore Hosting B.V.' : 'Tier-1 Telecom',
-    asn: isSuspicious ? 'AS60068 Datacenter ASN' : 'AS7018 AT&T Services',
-    isDatacenter: isSuspicious,
-    isVpnOrProxy: isSuspicious,
-    isTor: false,
-    threatScore: isSuspicious ? 82 : 30,
+    ip, resolved: false, country: reason, countryCode: '', city: '', region: '',
+    latitude: null, longitude: null, isp: 'Sin datos', asn: 'Sin datos',
+    isDatacenter: false, isVpnOrProxy: false, isTor: false, threatScore: 0,
   };
 }
 
-// Global Breach Corpus for defensive threat intelligence
-const knownBreachCorpus: BreachRecord[] = [
-  {
-    breachName: 'Collection #1 (Dark Web Credential Vault)',
-    breachDate: '2019-01-07',
-    domain: 'combo-list.internal',
-    compromisedAccounts: 772904991,
-    dataClasses: ['Email Addresses', 'Plaintext Passwords', 'Dehashed Passwords'],
-    description: 'A massive collection of aggregated credentials circulating on underground hacker forums.',
-    verified: true,
-    severity: 'Critical',
-    sourceType: 'Combolist',
-  },
-  {
-    breachName: 'LummaC2 & Redline Stealer Botnet Exfiltration',
-    breachDate: '2025-11-20',
-    domain: 'infostealer.malware',
-    compromisedAccounts: 14800000,
-    dataClasses: ['Session Tokens', 'Browser Saved Passwords', 'Cryptocurrency Wallets', 'Auto-fill Data', 'Email Addresses'],
-    description: 'Logs exfiltrated by malware-infected endpoints containing unhashed active browser session cookies and credentials.',
-    verified: true,
-    severity: 'Critical',
-    sourceType: 'Infostealer Log (Redline/Lumma)',
-  },
-  {
-    breachName: 'Canva Cloud Storage Breach',
-    breachDate: '2019-05-24',
-    domain: 'canva.com',
-    compromisedAccounts: 137000000,
-    dataClasses: ['Customer Names', 'Email Addresses', 'Geographic Locations', 'Bcrypt Passwords'],
-    description: 'Customer design platform database breached containing user identifiers and password hashes.',
-    verified: true,
-    severity: 'High',
-    sourceType: 'Public Breach',
-  },
-  {
-    breachName: 'Apollo Business Intelligence Scrape',
-    breachDate: '2018-07-23',
-    domain: 'apollo.io',
-    compromisedAccounts: 125998000,
-    dataClasses: ['Email Addresses', 'Job Titles', 'Company Names', 'Phone Numbers', 'LinkedIn Profiles'],
-    description: 'Extensive B2B contact intelligence data scraped and exposed publicly without authentication.',
-    verified: true,
-    severity: 'Medium',
-    sourceType: 'Public Breach',
-  },
-  {
-    breachName: 'DarkWeb ComboList 2026 Q1',
-    breachDate: '2026-02-14',
-    domain: 'darknet.corp',
-    compromisedAccounts: 45000000,
-    dataClasses: ['Corporate Email Addresses', 'MD5 Password Hashes', 'IP Login Logs', 'Internal Department Names'],
-    description: 'Fresh aggregate credential dump compiled from multiple corporate phishing campaigns and credential stuffing attacks.',
-    verified: true,
-    severity: 'Critical',
-    sourceType: 'Dark Web Dump',
-  },
-  {
-    breachName: 'Nitro PDF Cloud Incident',
-    breachDate: '2020-10-21',
-    domain: 'gonitro.com',
-    compromisedAccounts: 77153000,
-    dataClasses: ['Email Addresses', 'Document Titles', 'Hashed Passwords', 'IP Addresses'],
-    description: 'Database backup containing document signatures, user accounts, and company metadata.',
-    verified: true,
-    severity: 'High',
-    sourceType: 'Public Breach',
-  },
-];
+async function enrichIp(ip: string): Promise<IpGeo> {
+  const cleanIp = ip.replace(/^::ffff:/, '').replace(/^\[|\]$/g, '');
+  const isPrivate =
+    !cleanIp || cleanIp === '::1' || cleanIp === '127.0.0.1' ||
+    /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|fc|fd)/i.test(cleanIp);
+  if (isPrivate) return unresolvedGeo(cleanIp || 'desconocida', 'Red privada o local');
 
-// Helper: Evaluate whether an email address is compromised in breach intelligence
-function evaluateEmailBreach(query: string = '') {
-  const cleanQuery = query.trim().toLowerCase();
-  const isDomain = !cleanQuery.includes('@');
-  const domainPart = isDomain ? cleanQuery : cleanQuery.split('@')[1];
-
-  let matchedBreaches: BreachRecord[] = [];
-  let isCompromised = false;
-  let riskScore = 0;
-
-  if (!isDomain) {
-    if (
-      cleanQuery.includes('pwned') ||
-      cleanQuery.includes('compromised') ||
-      cleanQuery.includes('test') ||
-      cleanQuery.includes('ianhazael') ||
-      cleanQuery.includes('ceo') ||
-      cleanQuery.includes('admin') ||
-      cleanQuery.includes('victim')
-    ) {
-      matchedBreaches = [
-        knownBreachCorpus[0],
-        knownBreachCorpus[1],
-        knownBreachCorpus[4],
-      ];
-      isCompromised = true;
-      riskScore = 94;
-    } else if (cleanQuery.includes('clean') || cleanQuery.includes('safe') || cleanQuery.includes('secure')) {
-      matchedBreaches = [];
-      isCompromised = false;
-      riskScore = 8;
-    } else {
-      matchedBreaches = [knownBreachCorpus[0], knownBreachCorpus[2]];
-      isCompromised = true;
-      riskScore = 68;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      `http://ip-api.com/json/${encodeURIComponent(cleanIp)}?fields=status,country,countryCode,regionName,city,lat,lon,isp,as,hosting,proxy`,
+      { signal: controller.signal },
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.status === 'success') {
+        const isDatacenter = !!data.hosting;
+        const isVpnOrProxy = !!data.proxy;
+        return {
+          ip: cleanIp,
+          resolved: true,
+          country: data.country || '',
+          countryCode: data.countryCode || '',
+          city: data.city || '',
+          region: data.regionName || '',
+          latitude: typeof data.lat === 'number' ? data.lat : null,
+          longitude: typeof data.lon === 'number' ? data.lon : null,
+          isp: data.isp || 'Sin datos',
+          asn: data.as || 'Sin datos',
+          isDatacenter,
+          isVpnOrProxy,
+          isTor: isVpnOrProxy && /\btor\b/i.test(data.isp || ''),
+          threatScore: isVpnOrProxy ? 75 : isDatacenter ? 60 : 25,
+        };
+      }
     }
-  } else {
-    matchedBreaches = knownBreachCorpus.filter((b) => b.dataClasses.includes('Email Addresses'));
-    isCompromised = matchedBreaches.length > 0;
-    riskScore = 72;
+  } catch {
+    // network failure -> unresolved below
   }
+  return unresolvedGeo(cleanIp, 'No se pudo geolocalizar');
+}
 
-  return {
-    isCompromised,
-    riskScore,
-    breachCount: matchedBreaches.length,
-    breaches: matchedBreaches,
-    exposedDataClasses: Array.from(new Set(matchedBreaches.flatMap((b) => b.dataClasses))),
-  };
+// Helper: real breach lookup via XposedOrNot (free, keyless; email only)
+interface BreachCheck {
+  ok: boolean;
+  error?: string;
+  isCompromised: boolean;
+  riskScore: number;
+  breachCount: number;
+  breaches: BreachRecord[];
+  exposedDataClasses: string[];
+}
+
+async function checkEmailBreaches(email: string): Promise<BreachCheck> {
+  const empty: BreachCheck = { ok: false, isCompromised: false, riskScore: 0, breachCount: 0, breaches: [], exposedDataClasses: [] };
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch(
+      `https://api.xposedornot.com/v1/breach-analytics?email=${encodeURIComponent(email)}`,
+      { signal: controller.signal },
+    );
+    clearTimeout(timeout);
+    if (!res.ok) return { ...empty, error: `XposedOrNot respondió ${res.status}` };
+    const data = await res.json();
+    const details: any[] = data?.ExposedBreaches?.breaches_details || [];
+    const riskScore = Number(data?.BreachMetrics?.risk?.[0]?.risk_score ?? 0);
+    const breaches: BreachRecord[] = details.map((b) => {
+      const classes = String(b.xposed_data || '').split(';').map((x) => x.trim()).filter(Boolean);
+      const stealer = /stealer|redline|lumma|raccoon|vidar/i.test(`${b.breach} ${b.details}`);
+      return {
+        breachName: b.breach,
+        breachDate: b.added ? String(b.added).slice(0, 10) : String(b.xposed_date || ''),
+        domain: b.domain || '',
+        compromisedAccounts: Number(b.xposed_records) || 0,
+        dataClasses: classes,
+        description: b.details || '',
+        verified: b.verified === 'Yes',
+        severity: classes.some((c) => /password/i.test(c)) ? 'Critical' : classes.length > 4 ? 'High' : 'Medium',
+        sourceType: stealer ? 'Infostealer Log (Redline/Lumma)' : 'Public Breach',
+      };
+    });
+    return {
+      ok: true,
+      isCompromised: breaches.length > 0,
+      riskScore: breaches.length ? riskScore : 0,
+      breachCount: breaches.length,
+      breaches,
+      exposedDataClasses: Array.from(new Set(breaches.flatMap((b) => b.dataClasses))),
+    };
+  } catch (err: any) {
+    return { ...empty, error: err?.name === 'AbortError' ? 'Tiempo de espera agotado' : 'No se pudo consultar XposedOrNot' };
+  }
 }
 
 // 1x1 transparent GIF buffer for invisible pixel beacons
@@ -573,7 +361,7 @@ app.post('/api/canary/create', (req: Request, res: Response) => {
     createdAt: new Date().toISOString(),
     hitsCount: 0,
     notifyEmail: notifyEmail || '',
-    associatedEmail: associatedEmail || 'ianhazael.a.l@gmail.com',
+    associatedEmail: associatedEmail || '',
     notes: notes || '',
     status: 'active',
   };
@@ -595,11 +383,10 @@ app.all(['/api/canary/ping/:tokenId', '/api/canary/ping'], async (req: Request, 
   const referer = (req.headers['referer'] as string) || (req.query.ref as string) || 'Direct Spreadsheet Query';
   const token = canaryTokens.find((t) => t.id === tokenId);
   const tokenName = token ? token.name : `Canary Beacon (${tokenId})`;
-  const associatedEmail = token?.associatedEmail || (req.query.email as string) || 'ianhazael.a.l@gmail.com';
+  const associatedEmail = token?.associatedEmail || (req.query.email as string) || '';
 
   const geo = await enrichIp(rawIp);
   const clientType = parseClientType(userAgent);
-  const breachInfo = evaluateEmailBreach(associatedEmail);
 
   let threatLevel: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
   if (geo.isTor || clientType === 'Headless Script') {
@@ -634,11 +421,7 @@ app.all(['/api/canary/ping/:tokenId', '/api/canary/ping'], async (req: Request, 
     isTor: geo.isTor,
     clientType,
     threatLevel,
-    associatedEmail,
-    isEmailCompromised: breachInfo.isCompromised,
-    emailBreachCount: breachInfo.breachCount,
-    emailRiskScore: breachInfo.riskScore,
-    emailBreachDetails: breachInfo.breaches.map((b) => b.breachName),
+    associatedEmail: associatedEmail || undefined,
     rawHeaders: {
       'user-agent': userAgent,
       'host': req.headers['host'],
@@ -657,81 +440,17 @@ app.all(['/api/canary/ping/:tokenId', '/api/canary/ping'], async (req: Request, 
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.status(200).send(`OK_200 [SEC_SYNC:${new Date().toISOString().split('T')[0]}]`);
-});
 
-// 3.5. Simulate Attacker Trigger Endpoint (for live testing on map and compromised email evaluation)
-app.post('/api/canary/simulate-attacker', async (req: Request, res: Response) => {
-  const { scenario = 'spain_madrid', tokenId, email = 'ianhazael.a.l@gmail.com' } = req.body;
-  const token = canaryTokens.find((t) => t.id === tokenId) || canaryTokens[0];
-
-  let ip = '88.24.112.5';
-  let userAgent = 'Microsoft Office Excel 2016 (16.0.14326) Windows NT 10.0';
-  let clientType: 'Excel / Office Engine' | 'Web Browser' | 'Headless Script' = 'Excel / Office Engine';
-
-  if (scenario === 'tor_germany') {
-    ip = '185.220.101.5';
-    userAgent = 'python-requests/2.31.0 (Automated Scraper)';
-    clientType = 'Headless Script';
-  } else if (scenario === 'spain_madrid') {
-    ip = '88.24.112.5';
-    userAgent = 'Microsoft Office Excel 365 (16.0.17029) Windows 11';
-    clientType = 'Excel / Office Engine';
-  } else if (scenario === 'usa_sanjose') {
-    ip = '198.51.100.42';
-    userAgent = 'Microsoft Office Excel 2016 Windows NT 10.0';
-    clientType = 'Excel / Office Engine';
-  } else if (scenario === 'tokyo_japan') {
-    ip = '133.242.18.9';
-    userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Excel-Preview/16.0';
-    clientType = 'Excel / Office Engine';
-  } else if (scenario === 'local') {
-    ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || '127.0.0.1';
+  // Breach lookup runs after the response so the Excel call is never delayed
+  if (associatedEmail.includes('@')) {
+    void checkEmailBreaches(associatedEmail).then((b) => {
+      if (!b.ok) return;
+      logEntry.isEmailCompromised = b.isCompromised;
+      logEntry.emailBreachCount = b.breachCount;
+      logEntry.emailRiskScore = b.riskScore;
+      logEntry.emailBreachDetails = b.breaches.map((x) => x.breachName);
+    });
   }
-
-  const geo = await enrichIp(ip);
-  const breachInfo = evaluateEmailBreach(email);
-
-  const logEntry: CanaryAccessLog = {
-    id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-    tokenId: token ? token.id : 'cnry-exec-salary-2026',
-    tokenName: token ? token.name : 'Executive Compensation & Bonus Q4.xlsx',
-    timestamp: new Date().toISOString(),
-    ip: geo.ip,
-    userAgent,
-    referer: 'Simulated Attacker Exfiltration Hook',
-    method: 'GET',
-    country: geo.country,
-    countryCode: geo.countryCode,
-    city: geo.city,
-    region: geo.region,
-    latitude: geo.latitude,
-    longitude: geo.longitude,
-    isp: geo.isp,
-    asn: geo.asn,
-    isDatacenter: geo.isDatacenter,
-    isVpnOrProxy: geo.isVpnOrProxy,
-    isTor: geo.isTor,
-    clientType,
-    threatLevel: geo.isTor ? 'Critical' : 'High',
-    associatedEmail: email,
-    isEmailCompromised: breachInfo.isCompromised,
-    emailBreachCount: breachInfo.breachCount,
-    emailRiskScore: breachInfo.riskScore,
-    emailBreachDetails: breachInfo.breaches.map((b) => b.breachName),
-    rawHeaders: {
-      'user-agent': userAgent,
-      'host': req.headers['host'],
-      'x-simulated-threat': scenario,
-    },
-  };
-
-  accessLogs.unshift(logEntry);
-  if (token) {
-    token.hitsCount += 1;
-    token.lastHitAt = logEntry.timestamp;
-  }
-
-  res.json({ success: true, log: logEntry });
 });
 
 // 4. Transparent 1x1 GIF Image Beacon (for `=IMAGE("...")` in Excel 365 or HTML tracking)
@@ -826,87 +545,80 @@ app.post('/api/canary/logs/clear', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// 7. IP Intelligence Inspection Endpoint
-app.get('/api/ip/lookup/:ip', async (req: Request, res: Response) => {
-  const targetIp = req.params.ip;
-  const enriched = await enrichIp(targetIp);
-  res.json({
-    success: true,
-    ip: targetIp,
-    details: enriched,
-    openPorts: [80, 443],
-    reverseDns: `host-${targetIp.replace(/\./g, '-')}.network.net`,
-    whois: {
-      netRange: `${targetIp.split('.').slice(0, 3).join('.')}.0/24`,
-      org: enriched.isp,
-      country: enriched.country,
-      abuseContact: `abuse@${enriched.isp.toLowerCase().replace(/[^a-z0-9]/g, '') || 'telecom'}.com`,
-      updated: '2026-01-15',
-    },
-  });
+// 6.5 Caller's own IP, geolocated
+app.get('/api/me', async (req: Request, res: Response) => {
+  const rawIp =
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+    (req.headers['x-real-ip'] as string) ||
+    req.socket.remoteAddress ||
+    '';
+  const geo = await enrichIp(rawIp);
+  if (!geo.resolved) {
+    res.status(422).json({ success: false, ip: geo.ip, error: geo.country });
+    return;
+  }
+  res.json({ success: true, ip: geo.ip });
 });
 
-// 8. Compromised Email & Domain Threat Scanner (as requested by user!)
-app.post('/api/breach/check', (req: Request, res: Response) => {
+// 7. IP Intelligence Inspection Endpoint (real geolocation + real reverse DNS)
+app.get('/api/ip/lookup/:ip', async (req: Request, res: Response) => {
+  const targetIp = req.params.ip;
+  if (!/^[0-9a-fA-F:.]{2,45}$/.test(targetIp)) {
+    res.status(400).json({ success: false, error: 'IP inválida.' });
+    return;
+  }
+  const enriched = await enrichIp(targetIp);
+  let reverseDns: string | null = null;
+  try {
+    reverseDns = (await dns.reverse(targetIp))[0] || null;
+  } catch {
+    reverseDns = null;
+  }
+  res.json({ success: true, ip: targetIp, details: enriched, reverseDns });
+});
+
+// 8. Compromised email scanner (real data: XposedOrNot; email only, domain search needs a paid key)
+app.post('/api/breach/check', async (req: Request, res: Response) => {
   const { query } = req.body;
   if (!query || typeof query !== 'string') {
-    res.status(400).json({ success: false, error: 'Query email or domain is required.' });
+    res.status(400).json({ success: false, error: 'Falta el correo a consultar.' });
+    return;
+  }
+  const cleanQuery = query.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanQuery)) {
+    res.status(400).json({ success: false, error: 'Ingresa un correo completo (usuario@dominio). La búsqueda por dominio requiere una API de pago.' });
     return;
   }
 
-  const cleanQuery = query.trim().toLowerCase();
-  const isDomain = !cleanQuery.includes('@');
-  const domainPart = isDomain ? cleanQuery : cleanQuery.split('@')[1];
+  const result = await checkEmailBreaches(cleanQuery);
+  if (!result.ok) {
+    res.status(502).json({ success: false, error: result.error || 'Servicio de brechas no disponible.' });
+    return;
+  }
 
-  const evalResult = evaluateEmailBreach(cleanQuery);
-  const { matchedBreaches, isCompromised, riskScore } = {
-    matchedBreaches: evalResult.breaches,
-    isCompromised: evalResult.isCompromised,
-    riskScore: evalResult.riskScore,
-  };
-
-  const recommendedActions = [
-    {
-      id: 'act-1',
-      title: 'Force Immediate Credential Invalidation',
-      detail: 'Revoke active OAuth refresh tokens and terminate all concurrent corporate sessions in Azure AD / Google Workspace.',
-      priority: 'Immediate',
-      category: 'Identity Access',
-    },
-    {
-      id: 'act-2',
-      title: 'Mandate FIDO2 / WebAuthn Hardware MFA',
-      detail: 'Upgrade account authentication from SMS/Push MFA to phishing-resistant WebAuthn security keys (YubiKey / Passkey).',
-      priority: 'High',
-      category: 'Authentication',
-    },
-    {
-      id: 'act-3',
-      title: 'Audit Mailbox Forwarding Rules',
-      detail: 'Inspect user inbox for silent external forwarding rules or hidden deletion filters commonly deployed in Business Email Compromise (BEC).',
-      priority: 'High',
-      category: 'Mail Security',
-    },
-    {
-      id: 'act-4',
-      title: 'Scan Endpoint for Stealer Malware',
-      detail: 'Lumma/Redline signatures detected. Execute full endpoint EDR offline triage to remove residual keyloggers or token-grabbers.',
-      priority: 'Critical',
-      category: 'Endpoint Security',
-    },
-  ];
+  const recommendedActions = result.isCompromised
+    ? [
+        { id: 'act-1', title: 'Cambiar contraseña y cerrar sesiones activas', detail: 'Restablece la contraseña del correo y revoca tokens y sesiones abiertas en el proveedor (Google Workspace / Microsoft 365).', priority: 'Immediate', category: 'Identity Access' },
+        { id: 'act-2', title: 'Activar MFA resistente a phishing', detail: 'Usa llaves FIDO2/passkeys en lugar de SMS o notificaciones push.', priority: 'High', category: 'Authentication' },
+        { id: 'act-3', title: 'Revisar reglas de reenvío del buzón', detail: 'Busca reenvíos externos o filtros de borrado ocultos, típicos de un compromiso de correo empresarial.', priority: 'High', category: 'Mail Security' },
+        ...(result.breaches.some((b) => b.sourceType.startsWith('Infostealer'))
+          ? [{ id: 'act-4', title: 'Revisar el equipo por malware infostealer', detail: 'Una de las brechas es de tipo infostealer: analiza el equipo con EDR y cambia todas las credenciales guardadas en el navegador.', priority: 'Critical', category: 'Endpoint Security' }]
+          : []),
+      ]
+    : [];
 
   res.json({
     success: true,
     query: cleanQuery,
-    isDomain,
-    domain: domainPart,
-    isCompromised,
-    riskScore,
-    breachCount: matchedBreaches.length,
-    breaches: matchedBreaches,
-    exposedDataClasses: Array.from(new Set(matchedBreaches.flatMap((b) => b.dataClasses))),
+    isDomain: false,
+    domain: cleanQuery.split('@')[1],
+    isCompromised: result.isCompromised,
+    riskScore: result.riskScore,
+    breachCount: result.breachCount,
+    breaches: result.breaches,
+    exposedDataClasses: result.exposedDataClasses,
     recommendedActions,
+    source: 'XposedOrNot',
     checkedAt: new Date().toISOString(),
   });
 });
@@ -950,9 +662,9 @@ Format cleanly with clear headings and bullet points.`;
 
   const summary = `### DEFENSIVE INCIDENT INVESTIGATION MEMO
 **Classification**: PRIVILEGED DATA ACCESS DETECTED
-**Target Document**: ${data?.tokenName || 'Executive Canary Spreadsheet'}
-**Triggering Entity**: IP ${data?.ip || '198.51.100.42'} (${data?.country || 'External Geo'} · ${data?.isp || 'Commercial ISP'})
-**Client Signature**: ${data?.clientType || 'Office / Web Engine'}
+**Target Document**: ${data?.tokenName || 'N/D'}
+**Triggering Entity**: IP ${data?.ip || 'N/D'} (${data?.country || 'N/D'} · ${data?.isp || 'N/D'})
+**Client Signature**: ${data?.clientType || 'N/D'}
 
 #### 1. Executive Summary
 A defensive honeytoken spreadsheet containing canary tracking formulas was accessed outside authorized network boundaries. The caller client executed outbound HTTP web query hooks, confirming document opening and potential exfiltration attempt.

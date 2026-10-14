@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Radio, Bell, BellOff, Zap, RefreshCw, Download, Crosshair } from 'lucide-react';
+import { Bell, BellOff, Download, Crosshair } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   canaryCount: number;
   totalHits: number;
-  onQuickTestPing: () => void;
-  isTesting: boolean;
 }
 
 const navItems = [
@@ -23,8 +21,6 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   canaryCount,
   totalHits,
-  onQuickTestPing,
-  isTesting,
 }) => {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -127,15 +123,6 @@ export const Header: React.FC<HeaderProps> = ({
             {audioEnabled ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
           </button>
 
-          <button
-            onClick={onQuickTestPing}
-            disabled={isTesting}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-emerald-400 hover:bg-emerald-300 text-zinc-950 font-semibold text-xs shadow-[0_0_18px_-4px_rgba(54,240,160,0.8)] transition-all disabled:opacity-50"
-            title="Simular que alguien abre un Excel canary ahora mismo"
-          >
-            {isTesting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-            <span>Probar Beacon</span>
-          </button>
         </div>
       </div>
     </header>

@@ -22,7 +22,7 @@ interface IpIntelligenceViewProps {
 }
 
 export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selectedIp, onSearchIp }) => {
-  const [ip, setIp] = useState<string>(selectedIp || '198.51.100.42');
+  const [ip, setIp] = useState<string>(selectedIp || '');
   const [loading, setLoading] = useState(false);
   const [ipData, setIpData] = useState<any>(null);
   const [copiedAction, setCopiedAction] = useState<string | null>(null);
@@ -31,8 +31,6 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
     if (selectedIp) {
       setIp(selectedIp);
       fetchIpData(selectedIp);
-    } else {
-      fetchIpData(ip);
     }
   }, [selectedIp]);
 
@@ -48,13 +46,6 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
     setCopiedAction(actionId);
     setTimeout(() => setCopiedAction(null), 2000);
   };
-
-  const sampleIps = [
-    { label: '198.51.100.42 (San Jose Comcast)', ip: '198.51.100.42' },
-    { label: '185.220.101.5 (Tor Exit Node Frankfurt)', ip: '185.220.101.5' },
-    { label: '104.28.244.18 (Cloudflare WARP London)', ip: '104.28.244.18' },
-    { label: '127.0.0.1 (Defender Local Subnet)', ip: '127.0.0.1' },
-  ];
 
   const iptablesCommand = ipData ? `sudo iptables -A INPUT -s ${ipData.ip} -j DROP` : '';
   const ufwCommand = ipData ? `sudo ufw deny from ${ipData.ip}` : '';
@@ -79,7 +70,7 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
             <Server className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input
               type="text"
-              placeholder="Enter IP address (e.g. 198.51.100.42)..."
+              placeholder="Dirección IP (IPv4 o IPv6)"
               value={ip}
               onChange={(e) => setIp(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && fetchIpData(ip)}
@@ -96,22 +87,6 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
           </button>
         </div>
 
-        {/* Quick Sample Chips */}
-        <div className="flex flex-wrap items-center gap-2 text-xs pt-1">
-          <span className="text-zinc-500 text-[11px] font-mono">Captured Incident IPs:</span>
-          {sampleIps.map((s) => (
-            <button
-              key={s.ip}
-              onClick={() => {
-                setIp(s.ip);
-                fetchIpData(s.ip);
-              }}
-              className="px-2.5 py-1 rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 font-mono text-[11px] transition-colors"
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* IP Investigation Results */}
@@ -143,12 +118,16 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
                 <div className="flex items-center gap-2 text-xs text-zinc-400 mt-1 font-sans">
                   <MapPin className="w-3.5 h-3.5 text-emerald-400" />
                   <span>
-                    {ipData.details.city}, {ipData.details.region}, {ipData.details.country} ({ipData.details.countryCode})
+                    {ipData.details.resolved
+                      ? `${ipData.details.city}, ${ipData.details.region}, ${ipData.details.country} (${ipData.details.countryCode})`
+                      : ipData.details.country}
                   </span>
                   <span className="text-zinc-600">&middot;</span>
-                  <span className="font-mono text-[11px] text-zinc-500">
-                    LAT: {ipData.details.latitude}, LON: {ipData.details.longitude}
-                  </span>
+                  {ipData.details.latitude != null && (
+                    <span className="font-mono text-[11px] text-zinc-500">
+                      LAT: {ipData.details.latitude}, LON: {ipData.details.longitude}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -182,7 +161,7 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
           </div>
 
           {/* Deep Details Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
             {/* Column 1: Network & ISP */}
             <div className="p-4 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-2.5">
               <div className="text-zinc-400 font-semibold text-xs tracking-wider uppercase flex items-center gap-1.5 font-sans">
@@ -200,7 +179,7 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
                 </div>
                 <div>
                   <span className="text-zinc-500">Reverse DNS PTR:</span>
-                  <p className="text-cyan-300 truncate">{ipData.reverseDns}</p>
+                  <p className="text-cyan-300 truncate">{ipData.reverseDns || 'Sin registro PTR'}</p>
                 </div>
               </div>
             </div>
@@ -237,27 +216,6 @@ export const IpIntelligenceView: React.FC<IpIntelligenceViewProps> = ({ selected
               </div>
             </div>
 
-            {/* Column 3: WHOIS & Routing */}
-            <div className="p-4 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-2.5">
-              <div className="text-zinc-400 font-semibold text-xs tracking-wider uppercase flex items-center gap-1.5 font-sans">
-                <Terminal className="w-4 h-4 text-cyan-400" />
-                WHOIS &amp; Registry
-              </div>
-              <div className="space-y-1.5 pt-1">
-                <div>
-                  <span className="text-zinc-500">Allocated NetRange:</span>
-                  <p className="text-zinc-300">{ipData.whois?.netRange}</p>
-                </div>
-                <div>
-                  <span className="text-zinc-500">Registry Org:</span>
-                  <p className="text-zinc-300 truncate">{ipData.whois?.org}</p>
-                </div>
-                <div>
-                  <span className="text-zinc-500">Abuse Reporting Email:</span>
-                  <p className="text-emerald-400 truncate">{ipData.whois?.abuseContact}</p>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Immediate Perimeter Containment Commands */}

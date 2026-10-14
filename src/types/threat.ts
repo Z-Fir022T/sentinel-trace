@@ -27,8 +27,8 @@ export interface CanaryAccessLog {
   countryCode: string;
   city: string;
   region: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   isp: string;
   asn: string;
   isDatacenter: boolean;
@@ -74,6 +74,7 @@ export interface EmailBreachAuditResult {
     category: string;
   }[];
   checkedAt: string;
+  source?: string;
 }
 
 export interface ExcelFinding {

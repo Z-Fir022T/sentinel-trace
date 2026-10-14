@@ -1,378 +1,415 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
-import { 
-  Globe, 
-  MapPin, 
-  ShieldAlert, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Zap, 
-  ExternalLink, 
-  RefreshCw, 
-  Crosshair,
-  Mail,
-  FileSpreadsheet
-} from 'lucide-react';
 import { CanaryAccessLog } from '../types/threat';
 
 interface LiveLeafletMapProps {
   logs: CanaryAccessLog[];
   selectedLog: CanaryAccessLog | null;
   onSelectLog: (log: CanaryAccessLog) => void;
-  onSimulateScenario: (scenario: string, email: string) => Promise<void>;
-  isSimulating: boolean;
-  defaultEmail: string;
 }
 
-export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
-  logs,
-  selectedLog,
-  onSelectLog,
-  onSimulateScenario,
-  isSimulating,
-  defaultEmail,
-}) => {
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.Marker[]>([]);
-  const circlesRef = useRef<L.Circle[]>([]);
-  const [testEmail, setTestEmail] = useState<string>(defaultEmail || 'ianhazael.a.l@gmail.com');
-  const [activeScenario, setActiveScenario] = useState<string>('spain_madrid');
-  const [selectedMarker, setSelectedMarker] = useState<CanaryAccessLog | null>(null);
+interface LookupResult {
+  id: string;
+  ip: string;
+  ok: boolean;
+  error?: string;
+  city: string;
+  region: string;
+  country: string;
+  countryCode: string;
+  latitude: number | null;
+  longitude: number | null;
+  isp: string;
+  asn: string;
+}
 
-  // Initialize Leaflet Map
+type Item = {
+  id: string;
+  kind: 'hit' | 'lookup';
+  ip: string;
+  lat: number | null;
+  lng: number | null;
+  tone: 'crit' | 'high' | 'ok' | 'lookup';
+  place: string;
+  tag: string;
+  rows: [string, string][];
+  note?: string;
+  log?: CanaryAccessLog;
+  raw: unknown;
+};
+
+const esc = (s: unknown) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+
+const flag = (cc?: string) =>
+  cc && /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...[...cc].map((c) => 0x1f1a5 + c.charCodeAt(0))) : '';
+
+const placeOf = (r: { city?: string; region?: string; country?: string }) =>
+  [r.city, r.region, r.country].filter(Boolean).join(', ') || r.country || 'Ubicación desconocida';
+
+const toneOf = (l: CanaryAccessLog): Item['tone'] =>
+  l.threatLevel === 'Critical' ? 'crit' : l.threatLevel === 'High' ? 'high' : 'ok';
+
+const hitToItem = (l: CanaryAccessLog): Item => {
+  const rows: [string, string][] = [];
+  const located = l.latitude != null && l.longitude != null;
+  if (located) rows.push(['Coord.', `${(l.latitude as number).toFixed(4)}, ${(l.longitude as number).toFixed(4)}`]);
+  rows.push(['Red', l.isp && l.isp !== 'Sin datos' ? `${l.isp}${l.asn && l.asn !== 'Sin datos' ? ` · ${l.asn.split(' ')[0]}` : ''}` : 'Sin datos']);
+  rows.push(['Archivo', l.tokenName]);
+  rows.push(['Cliente', l.clientType]);
+  rows.push(['Hora', new Date(l.timestamp).toLocaleString('es-MX')]);
+  if (l.associatedEmail) {
+    rows.push([
+      'Correo',
+      `${l.associatedEmail} · ${
+        l.isEmailCompromised === undefined ? 'consultando…' : l.isEmailCompromised ? `en ${l.emailBreachCount ?? 0} brecha(s)` : 'sin brechas'
+      }`,
+    ]);
+  }
+  return {
+    id: l.id,
+    kind: 'hit',
+    ip: l.ip,
+    lat: l.latitude,
+    lng: l.longitude,
+    tone: toneOf(l),
+    place: located ? `${flag(l.countryCode)} ${placeOf(l)}`.trim() : l.country || 'Sin geolocalización',
+    tag: l.threatLevel,
+    rows,
+    note: located ? undefined : 'No se pudo ubicar esta IP en el mapa.',
+    log: l,
+    raw: l,
+  };
+};
+
+const lookupToItem = (r: LookupResult): Item => ({
+  id: r.id,
+  kind: 'lookup',
+  ip: r.ip,
+  lat: r.latitude,
+  lng: r.longitude,
+  tone: 'lookup',
+  place: r.ok ? `${flag(r.countryCode)} ${placeOf(r)}`.trim() : r.country || 'Sin geolocalización',
+  tag: 'consulta',
+  rows: r.ok
+    ? [
+        ['Coord.', `${r.latitude?.toFixed(4)}, ${r.longitude?.toFixed(4)}`],
+        ['Red', `${r.isp}${r.asn && r.asn !== 'Sin datos' ? ` · ${r.asn.split(' ')[0]}` : ''}`],
+      ]
+    : [],
+  note: r.ok ? undefined : r.error || 'No se pudo ubicar esta IP.',
+  raw: r,
+});
+
+export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({ logs, selectedLog, onSelectLog }) => {
+  const mapEl = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const groupRef = useRef<L.FeatureGroup | null>(null);
+  const markersRef = useRef<Map<string, L.Marker>>(new Map());
+  const seenRef = useRef<string>('');
+
+  const [tab, setTab] = useState<'hits' | 'lookups'>('hits');
+  const [input, setInput] = useState('');
+  const [lookups, setLookups] = useState<LookupResult[]>([]);
+  const [status, setStatus] = useState<{ msg: string; error?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const hitItems = logs.map(hitToItem);
+  const lookupItems = lookups.map(lookupToItem);
+  const items = tab === 'hits' ? hitItems : lookupItems;
+  const allMapped = [...hitItems, ...lookupItems];
+
+  const focusItem = useCallback((id: string) => {
+    const map = mapRef.current;
+    const marker = markersRef.current.get(id);
+    if (!map || !marker) return;
+    setActiveId(id);
+    map.flyTo(marker.getLatLng(), 10, { duration: 0.8 });
+    marker.openPopup();
+  }, []);
+
   useEffect(() => {
-    if (!mapContainerRef.current) return;
-    if (mapInstanceRef.current) return; // already initialized
-
-    // Center on Europe/Atlantic view initially
-    const map = L.map(mapContainerRef.current, {
-      center: [30, 0],
-      zoom: 2,
-      minZoom: 1.5,
-      maxZoom: 18,
-      zoomControl: true,
-      attributionControl: false,
-    });
-
-    // Dark-themed high contrast tiles for cyber defense SOC
+    if (!mapEl.current || mapRef.current) return;
+    const map = L.map(mapEl.current, { worldCopyJump: true, zoomControl: true }).setView([20, -40], 2);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap',
-      className: 'osm-dark-tiles',
+      className: 'tiles-dark',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
-
-    mapInstanceRef.current = map;
-
+    groupRef.current = L.featureGroup().addTo(map);
+    mapRef.current = map;
     return () => {
       map.remove();
-      mapInstanceRef.current = null;
+      mapRef.current = null;
     };
   }, []);
 
-  // Update Markers whenever logs change
   useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map) return;
+    const group = groupRef.current;
+    const map = mapRef.current;
+    if (!group || !map) return;
+    group.clearLayers();
+    markersRef.current.clear();
 
-    // Clear existing markers & circles
-    markersRef.current.forEach((m) => m.remove());
-    circlesRef.current.forEach((c) => c.remove());
-    markersRef.current = [];
-    circlesRef.current = [];
-
-    logs.forEach((log) => {
-      if (!log.latitude || !log.longitude) return;
-
-      const isCrit = log.threatLevel === 'Critical';
-      const isHigh = log.threatLevel === 'High';
-      const isCompromised = log.isEmailCompromised;
-
-      const markerColor = isCrit ? '#ef4444' : isHigh ? '#f59e0b' : '#10b981';
-      const circleColor = isCrit ? '#dc2626' : isHigh ? '#d97706' : '#059669';
-      const pulseClass = isCrit ? 'pulse-red' : isHigh ? 'pulse-amber' : 'pulse-emerald';
-
-      // Accuracy circle (50km radius for IP geolocation margin of error)
-      const circle = L.circle([log.latitude, log.longitude], {
-        radius: 50000,
-        color: circleColor,
-        weight: 1.5,
-        opacity: 0.25,
-        fillColor: circleColor,
-        fillOpacity: 0.08,
-        dashArray: '5, 5',
-      }).addTo(map);
-
-      // Custom HTML Marker with pulsing aura
-      const customIcon = L.divIcon({
-        className: 'custom-canary-pin',
-        html: `
-          <div style="position: relative; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
-            <div style="position: absolute; width: 28px; height: 28px; border-radius: 50%; background: ${markerColor}; opacity: 0.3;" class="${pulseClass}"></div>
-            <div style="width: 14px; height: 14px; border-radius: 50%; background: ${markerColor}; border: 2.5px solid #09090b; box-shadow: 0 0 12px ${markerColor}, inset 0 0 6px ${markerColor};"></div>
-          </div>
-        `,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
-        popupAnchor: [0, -14],
+    allMapped.forEach((it) => {
+      if (it.lat == null || it.lng == null) return;
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="geo-pin ${it.tone}${it.id === activeId ? ' active' : ''}"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
       });
-
-      const marker = L.marker([log.latitude, log.longitude], { icon: customIcon }).addTo(map);
-
-      // Enhanced Popup Content
-      const popupHtml = `
-        <div style="font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.4; color: #f4f4f5; background: #09090b; padding: 8px; min-width: 260px; border-radius: 6px; border: 1px solid #27272a;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #27272a; padding-bottom: 6px;">
-            <span style="font-weight: 700; color: #10b981; font-size: 13px;">📊 INCIDENT ALERT</span>
-            <span style="font-size: 10px; background: ${isCrit ? '#7f1d1d' : isHigh ? '#92400e' : '#064e3b'}; color: ${isCrit ? '#fca5a5' : isHigh ? '#fbbf24' : '#6ee7b7'}; padding: 2px 8px; border-radius: 3px; font-weight: bold; border: 1px solid ${isCrit ? '#dc2626' : isHigh ? '#d97706' : '#059669'};">
-              ${log.threatLevel}
-            </span>
-          </div>
-
-          <div style="margin-bottom: 6px;">
-            <span style="color: #a1a1aa; font-size: 10px; display: block; margin-bottom: 2px;">📍 LOCATION</span>
-            <div style="font-weight: 600; color: #fff; font-size: 12px;">${log.city}, ${log.country}</div>
-            <div style="font-size: 10px; color: #71717a; margin-top: 1px;">${log.latitude?.toFixed(4)}, ${log.longitude?.toFixed(4)}</div>
-          </div>
-
-          <div style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #27272a;">
-            <span style="color: #a1a1aa; font-size: 10px; display: block; margin-bottom: 2px;">🎯 ATTACKER IP</span>
-            <div style="font-family: 'Courier New', monospace; font-weight: bold; color: #38bdf8; font-size: 13px;">${log.ip}</div>
-            <div style="color: #71717a; font-size: 10px;">${log.isp} (${log.asn})</div>
-          </div>
-
-          <div style="margin-bottom: 6px;">
-            <span style="color: #a1a1aa; font-size: 10px; display: block; margin-bottom: 2px;">📄 TARGET DOCUMENT</span>
-            <div style="font-weight: 500; color: #e4e4e7; font-size: 11px;">${log.tokenName}</div>
-          </div>
-
-          <div style="margin: 8px 0; padding: 8px; border-radius: 4px; background: ${isCompromised ? 'rgba(127, 29, 29, 0.5)' : 'rgba(6, 78, 59, 0.5)'}; border-left: 3px solid ${isCompromised ? '#dc2626' : '#059669'};">
-            <span style="font-size: 10px; color: ${isCompromised ? '#fca5a5' : '#6ee7b7'}; font-weight: bold; display: block; margin-bottom: 3px;">
-              ${isCompromised ? '🚨 EMAIL COMPROMISED' : '✅ EMAIL CLEAN'}
-            </span>
-            <div style="font-family: monospace; font-size: 10px; color: #fff;">${log.associatedEmail || 'N/A'}</div>
-            ${
-              isCompromised
-                ? `<div style="font-size: 9px; color: #fca5a5; margin-top: 3px;">Found in ${log.emailBreachCount || 3} breach(es)</div>`
-                : ''
-            }
-          </div>
-
-          <div style="font-size: 9px; color: #71717a; text-align: right;">
-            ${new Date(log.timestamp).toLocaleString()} · ${log.clientType}
-          </div>
-        </div>
-      `;
-
-      marker.bindPopup(popupHtml, {
-        className: 'dark-cyber-popup',
-        maxWidth: 300,
-        minWidth: 260,
-      });
-
-      marker.on('click', () => {
-        onSelectLog(log);
-        setSelectedMarker(log);
-        marker.openPopup();
-      });
-
-      markersRef.current.push(marker);
-      circlesRef.current.push(circle);
+      const rows = it.rows.map(([k, v]) => `<br><span class="k">${esc(k)}</span> ${esc(v)}`).join('');
+      const marker = L.marker([it.lat, it.lng], { icon, title: it.ip })
+        .bindPopup(`<b>${esc(it.place)}</b><br>${esc(it.ip)}${rows}`)
+        .addTo(group);
+      marker.on('click', () => focusItem(it.id));
+      markersRef.current.set(it.id, marker);
     });
-  }, [logs, onSelectLog]);
 
-  // Fly to selected log with enhanced animation
-  useEffect(() => {
-    if (!selectedLog || !mapInstanceRef.current) return;
-    if (selectedLog.latitude && selectedLog.longitude) {
-      const map = mapInstanceRef.current;
-      const targetZoom = 10;
-      const animOptions = {
-        duration: 1.2,
-        easeLinearity: 0.25,
-      };
-
-      map.flyTo([selectedLog.latitude, selectedLog.longitude], targetZoom, animOptions);
-
-      // Open popup after animation settles
-      setTimeout(() => {
-        const selectedMarker = markersRef.current.find(
-          (m) => m.getLatLng().lat === selectedLog.latitude &&
-                 m.getLatLng().lng === selectedLog.longitude
-        );
-        if (selectedMarker) {
-          selectedMarker.openPopup();
-        }
-      }, 1300);
+    // Fit only when new points appear so the 8 s polling never moves the view
+    const key = allMapped.filter((i) => i.lat != null).map((i) => i.id).join('|');
+    if (key && key !== seenRef.current) {
+      seenRef.current = key;
+      const pts = allMapped
+        .filter((i) => i.lat != null && i.lng != null)
+        .map((i) => [i.lat as number, i.lng as number] as [number, number]);
+      if (pts.length === 1) map.flyTo(pts[0], 8, { duration: 0.8 });
+      else if (pts.length > 1) map.flyToBounds(L.latLngBounds(pts).pad(0.3), { duration: 0.8, maxZoom: 8 });
     }
-  }, [selectedLog]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logs, lookups, activeId]);
 
-  const handleSimulate = async (scenario: string) => {
-    setActiveScenario(scenario);
-    await onSimulateScenario(scenario, testEmail);
+  useEffect(() => {
+    if (selectedLog) focusItem(selectedLog.id);
+  }, [selectedLog, focusItem]);
+
+  const lookupIps = async (ips: string[]) => {
+    if (!ips.length) {
+      setStatus({ msg: 'Escribe al menos una IP', error: true });
+      return;
+    }
+    if (ips.length > 50) {
+      setStatus({ msg: 'Máximo 50 IPs por consulta', error: true });
+      return;
+    }
+    setBusy(true);
+    setStatus({ msg: 'Consultando...' });
+    const out: LookupResult[] = [];
+    for (const ip of ips) {
+      const id = `lk-${ip}-${Date.now()}`;
+      try {
+        const res = await fetch(`/api/ip/lookup/${encodeURIComponent(ip)}`);
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || `Error ${res.status}`);
+        const d = data.details;
+        out.push({
+          id,
+          ip,
+          ok: d.resolved && d.latitude != null,
+          error: d.resolved ? undefined : d.country,
+          city: d.city, region: d.region, country: d.country, countryCode: d.countryCode,
+          latitude: d.latitude, longitude: d.longitude, isp: d.isp, asn: d.asn,
+        });
+      } catch (e: any) {
+        out.push({ id, ip, ok: false, error: e.message, city: '', region: '', country: '', countryCode: '', latitude: null, longitude: null, isp: '', asn: '' });
+      }
+    }
+    seenRef.current = '';
+    setLookups(out);
+    setTab('lookups');
+    setStatus(null);
+    setBusy(false);
   };
 
+  const parse = (t: string) => [...new Set(t.split(/[\s,;]+/).map((s) => s.replace(/^\[|\]$/g, '').trim()).filter(Boolean))];
+
+  const myIp = async () => {
+    setStatus({ msg: 'Detectando tu IP...' });
+    try {
+      const res = await fetch('/api/me');
+      const data = await res.json();
+      if (!res.ok || !data.ip) throw new Error(data.error || `Error ${res.status}`);
+      setInput(data.ip);
+      await lookupIps([data.ip]);
+    } catch (e: any) {
+      setStatus({ msg: e.message, error: true });
+    }
+  };
+
+  const clearAll = () => {
+    setInput('');
+    setLookups([]);
+    setStatus(null);
+    setActiveId(null);
+    seenRef.current = '';
+    mapRef.current?.flyTo([20, -40], 2, { duration: 0.6 });
+  };
+
+  const download = (name: string, content: string, type: string) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  const copyJson = async () => {
+    const text = JSON.stringify(items.map((i) => i.raw), null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus({ msg: 'JSON copiado' });
+      setTimeout(() => setStatus(null), 1500);
+    } catch {
+      download('ips.json', text, 'application/json');
+    }
+  };
+
+  const exportCsv = () => {
+    const cols = ['ip', 'place', 'lat', 'lng', 'tag'] as const;
+    const cell = (v: unknown) => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+    const csv = [cols.join(','), ...items.map((i) => cols.map((c) => cell(i[c])).join(','))].join('\n');
+    download(`ips-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv');
+  };
+
+  const located = items.filter((i) => i.lat != null).length;
+  const countLabel = items.length
+    ? `${located} de ${items.length} localizada${items.length === 1 ? '' : 's'}`
+    : tab === 'hits'
+    ? 'Sin aperturas'
+    : 'Sin consultas';
+
   return (
-    <div className="p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800 space-y-4">
-      {/* Title & Technical Clarification Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Globe className="w-5 h-5 text-emerald-400" />
-            <h3 className="text-base font-semibold text-zinc-100">
-              Mapa en Vivo: Localización del Atacante e IP al Abrir el Excel
-            </h3>
-            <span className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono font-medium">
-              TELEMETRÍA EN DIRECTO
-            </span>
+    <section className="geo">
+      <aside className="geo-panel">
+        <header className="geo-brand">
+          <span className="geo-mark" aria-hidden="true" />
+          <div>
+            <h2>Rastreo de IP</h2>
+            <p className="geo-sub">Aperturas de documentos señuelo</p>
           </div>
-          <p className="text-xs text-zinc-400 mt-1 max-w-3xl leading-relaxed">
-            Cuando alguien abre el archivo Excel con la fórmula trampa <code className="text-cyan-300 font-mono">=WEBSERVICE(...)</code>, el sistema captura en tiempo real su <strong className="text-zinc-200">dirección IP pública</strong>, la proyecta en este mapa con su <strong className="text-zinc-200">ciudad/país</strong>, y audita inmediatamente si el correo de la víctima está comprometido en bases de datos de hackers.
-          </p>
-        </div>
+        </header>
 
-        {/* Legend */}
-        <div className="flex items-center gap-3 text-xs font-mono text-zinc-400 shrink-0 bg-zinc-950 px-3 py-1.5 rounded-lg border border-zinc-800">
-          <span className="flex items-center gap-1.5 text-red-400">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping inline-block" />
-            Atacante Tor / Script
-          </span>
-          <span className="flex items-center gap-1.5 text-amber-300">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
-            Apertura Excel Remota
-          </span>
-        </div>
-      </div>
-
-      {/* Simulator Control Bar (Directly addresses the user's workflow!) */}
-      <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800/80 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-1">
-          <span className="font-semibold text-zinc-300 shrink-0 flex items-center gap-1.5">
-            <Mail className="w-3.5 h-3.5 text-emerald-400" />
-            Correo a Monitorear:
-          </span>
-          <input
-            type="email"
-            value={testEmail}
-            onChange={(e) => setTestEmail(e.target.value)}
-            className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-100 font-mono text-xs focus:outline-none focus:border-emerald-500 w-full sm:w-64"
-            placeholder="ianhazael.a.l@gmail.com"
+        <form
+          className="geo-query"
+          autoComplete="off"
+          onSubmit={(e) => {
+            e.preventDefault();
+            lookupIps(parse(input));
+          }}
+        >
+          <label htmlFor="geo-ips">
+            Consultar IP <span className="geo-hint">una o varias, IPv4 o IPv6</span>
+          </label>
+          <textarea
+            id="geo-ips"
+            rows={3}
+            spellCheck={false}
+            value={input}
+            placeholder={'8.8.8.8\n2001:4860:4860::8888'}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                lookupIps(parse(input));
+              }
+            }}
           />
+          <div className="geo-actions">
+            <button type="submit" className="geo-btn primary" disabled={busy}>Localizar</button>
+            <button type="button" className="geo-btn" onClick={myIp} disabled={busy}>Mi IP</button>
+            <button type="button" className="geo-btn ghost" onClick={clearAll}>Limpiar</button>
+          </div>
+        </form>
+
+        <div className="geo-tabs" role="tablist">
+          <button role="tab" aria-selected={tab === 'hits'} className={tab === 'hits' ? 'on' : ''} onClick={() => setTab('hits')}>
+            Aperturas ({hitItems.length})
+          </button>
+          <button role="tab" aria-selected={tab === 'lookups'} className={tab === 'lookups' ? 'on' : ''} onClick={() => setTab('lookups')}>
+            Consultas ({lookupItems.length})
+          </button>
         </div>
 
-        {/* Scenario buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-zinc-500 font-mono text-[11px] hidden xl:inline">Simular que el atacante abre el Excel:</span>
-          <button
-            onClick={() => handleSimulate('spain_madrid')}
-            disabled={isSimulating}
-            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-medium transition-colors flex items-center gap-1 disabled:opacity-50"
-            title="Simula un atacante abriendo el Excel desde Madrid, España"
-          >
-            <span>🇪🇸 España</span>
-          </button>
-
-          <button
-            onClick={() => handleSimulate('tor_germany')}
-            disabled={isSimulating}
-            className="px-2.5 py-1.5 rounded-lg bg-red-950/80 hover:bg-red-900 border border-red-800 text-red-200 font-medium transition-colors flex items-center gap-1 disabled:opacity-50"
-            title="Simula un atacante usando la red Tor desde Frankfurt, Alemania"
-          >
-            <span>🇩🇪 Tor (Alemania)</span>
-          </button>
-
-          <button
-            onClick={() => handleSimulate('usa_sanjose')}
-            disabled={isSimulating}
-            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-medium transition-colors flex items-center gap-1 disabled:opacity-50"
-            title="Simula apertura en Silicon Valley / EE.UU."
-          >
-            <span>🇺🇸 EE.UU.</span>
-          </button>
-
-          <button
-            onClick={() => handleSimulate('local')}
-            disabled={isSimulating}
-            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-all flex items-center gap-1.5 shadow-sm shadow-emerald-950 disabled:opacity-50"
-            title="Captura tu propia IP real ahora mismo para probar la localización"
-          >
-            {isSimulating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
-            <span>Probar con mi IP Real</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Real Interactive Leaflet Map Container */}
-      <div className="relative w-full h-[400px] sm:h-[460px] rounded-xl overflow-hidden border border-zinc-800">
-        <div ref={mapContainerRef} className="w-full h-full z-0" />
-
-        {/* HUD Overlay with recent hit summary */}
-        {logs.length > 0 && (
-          <div className="absolute top-3 right-3 z-10 p-3 rounded-xl bg-zinc-950/90 border border-zinc-800/90 shadow-2xl backdrop-blur-md max-w-xs text-xs space-y-1.5 pointer-events-auto">
-            <div className="flex items-center justify-between font-mono text-[11px] text-zinc-400 border-b border-zinc-800 pb-1">
-              <span className="font-semibold text-emerald-400 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                ÚLTIMA APERTURA
-              </span>
-              <span>{new Date(logs[0].timestamp).toLocaleTimeString()}</span>
-            </div>
-
-            <div className="font-mono text-zinc-200 font-bold text-sm">
-              IP: {logs[0].ip}
-            </div>
-
-            <div className="text-zinc-400 text-xs flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>{logs[0].city}, {logs[0].country}</span>
-            </div>
-
-            <div className="text-[11px] text-zinc-400 font-sans truncate" title={logs[0].tokenName}>
-              Archivo: {logs[0].tokenName}
-            </div>
-
-            {/* Email compromise indicator */}
-            <div
-              className={`p-2 rounded-lg text-[11px] font-mono mt-1 border ${
-                logs[0].isEmailCompromised
-                  ? 'bg-red-950/60 border-red-800/80 text-red-200'
-                  : 'bg-emerald-950/60 border-emerald-800/80 text-emerald-200'
-              }`}
-            >
-              <div className="font-bold flex items-center gap-1">
-                {logs[0].isEmailCompromised ? <AlertTriangle className="w-3.5 h-3.5 text-red-400" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                <span>{logs[0].isEmailCompromised ? 'CORREO COMPROMETIDO' : 'CORREO PROTEGIDO'}</span>
-              </div>
-              <div className="truncate text-zinc-300 mt-0.5">{logs[0].associatedEmail}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Pedagogical SOC Explanation: ¿Es posible o no? */}
-      <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300 space-y-2 leading-relaxed">
-        <h4 className="font-semibold text-zinc-100 flex items-center gap-2 text-sm">
-          <ShieldAlert className="w-4 h-4 text-emerald-400" />
-          Respuesta técnica: ¿Cómo sabemos si el mail está comprometido y la IP de quien tiene el archivo?
-        </h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-zinc-400">
-          <div className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80 space-y-1">
-            <span className="font-semibold text-emerald-400 block font-sans">
-              1. Localización e IP del Atacante (100% posible):
-            </span>
-            <p className="text-[11px]">
-              Al abrir el Excel en su ordenador, la fórmula integrada <code className="text-cyan-300 font-mono">=WEBSERVICE(&quot;https://...&quot;)</code> conecta de forma invisible a este servidor. En ese milisegundo capturamos su <strong>dirección IP real</strong>, su proveedor de internet (ISP) y sus <strong>coordenadas geográficas</strong> exactas mostradas en el mapa.
-            </p>
-          </div>
-          <div className="p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80 space-y-1">
-            <span className="font-semibold text-amber-400 block font-sans">
-              2. Saber si el Correo está comprometido:
-            </span>
-            <p className="text-[11px]">
-              Al crear el Excel, se vincula al correo que sospechas que fue hackeado (ej. <code className="text-emerald-300 font-mono">{testEmail}</code>). Cuando el atacante que robó ese correo abre el archivo, el sistema audita automáticamente el correo en bases de datos de brechas y malware (Redline / Lumma Stealer) para confirmar si sus credenciales fueron filtradas en la Dark Web.
-            </p>
+        <div className="geo-results-head">
+          <span>{countLabel}</span>
+          <div className="geo-export">
+            <button type="button" className="geo-link" disabled={!items.length} onClick={copyJson}>Copiar JSON</button>
+            <button type="button" className="geo-link" disabled={!items.length} onClick={exportCsv}>CSV</button>
           </div>
         </div>
+
+        <ol className="geo-results">
+          {items.length === 0 && (
+            <li className="geo-empty">
+              {tab === 'hits'
+                ? 'Cuando alguien abra un documento canary, su IP y ubicación aparecerán aquí.'
+                : 'Escribe una IP arriba para ubicarla en el mapa.'}
+            </li>
+          )}
+          {items.map((it) => {
+            const ok = it.lat != null && it.lng != null;
+            return (
+              <li
+                key={it.id}
+                className={`geo-result${ok ? '' : ' err'}${it.id === activeId ? ' active' : ''}`}
+                tabIndex={ok ? 0 : undefined}
+                onClick={() => ok && focusItem(it.id)}
+                onKeyDown={(e) => {
+                  if (ok && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    focusItem(it.id);
+                  }
+                }}
+              >
+                <div className="r-ip">
+                  <span>{it.ip}</span>
+                  <span className={`r-tag ${it.tone}`}>{it.tag}</span>
+                </div>
+                <div className="r-place">{it.place}</div>
+                {it.note && <div className="r-err">{it.note}</div>}
+                {it.rows.length > 0 && (
+                  <dl className="r-grid">
+                    {it.rows.map(([k, v]) => (
+                      <React.Fragment key={k}>
+                        <dt>{k}</dt>
+                        <dd>{v}</dd>
+                      </React.Fragment>
+                    ))}
+                  </dl>
+                )}
+                {it.log && (
+                  <button
+                    type="button"
+                    className="geo-link r-report"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectLog(it.log as CanaryAccessLog);
+                    }}
+                  >
+                    Ver informe forense
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+
+        <footer className="geo-foot">
+          <p>
+            La ubicación es aproximada a nivel ciudad; no corresponde a un domicilio. VPN, proxies y redes móviles pueden mostrar la ciudad del proveedor.
+          </p>
+          <p className="geo-source">
+            Geolocalización por <a href="https://ip-api.com" target="_blank" rel="noopener noreferrer">ip-api.com</a>.
+          </p>
+        </footer>
+      </aside>
+
+      <div className="geo-map-wrap">
+        <div ref={mapEl} className="geo-map" role="application" aria-label="Mapa de ubicaciones" />
+        {status && <div className={`geo-status${status.error ? ' error' : ''}`}>{status.msg}</div>}
       </div>
-    </div>
+    </section>
   );
 };
