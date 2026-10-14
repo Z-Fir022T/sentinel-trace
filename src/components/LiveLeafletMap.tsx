@@ -22,14 +22,14 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.Marker[]>([]);
+  const markersRef = useRef<Map<string, { marker: L.Marker; circle?: L.Circle }>>(new Map());
   const [testEmail, setTestEmail] = useState<string>(defaultEmail || 'security@corp.com');
 
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
-      center: [30, 0],
+      center: [20, -40],
       zoom: 2,
       minZoom: 1.5,
       maxZoom: 18,
@@ -37,9 +37,10 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
       attributionControl: false,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      subdomains: 'abcd',
+      className: 'tiles-dark',
+      attribution: '&copy; OpenStreetMap',
     }).addTo(map);
 
     mapInstanceRef.current = map;
@@ -49,8 +50,11 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
+    markersRef.current.forEach(({ marker, circle }) => {
+      marker.remove();
+      circle?.remove();
+    });
+    markersRef.current.clear();
 
     logs.forEach((log) => {
       if (!log.latitude || !log.longitude) return;
@@ -61,32 +65,49 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
 
       const customIcon = L.divIcon({
         className: 'custom-canary-pin',
-        html: `
-          <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
-            <div style="position: absolute; width: 24px; height: 24px; border-radius: 50%; background: ${markerColor}; opacity: 0.35;"></div>
-            <div style="width: 12px; height: 12px; border-radius: 50%; background: ${markerColor}; border: 2px solid #09090b; box-shadow: 0 0 10px ${markerColor};"></div>
-          </div>
-        `,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
+        html: `<div style="width: 16px; height: 16px; border-radius: 50%; background: ${markerColor}; border: 3px solid #09090b; box-shadow: 0 0 0 2px ${markerColor};"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
         popupAnchor: [0, -12],
       });
 
-      const marker = L.marker([log.latitude, log.longitude], { icon: customIcon }).addTo(map);
+      const marker = L.marker([log.latitude, log.longitude], { icon: customIcon, title: log.ip }).addTo(map);
 
       const popupHtml = `
-        <div style="font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.4; color: #f4f4f5; background: #09090b; padding: 8px; min-width: 240px; border-radius: 6px;">
-          <div style="font-weight: 700; color: #10b981; margin-bottom: 8px;">EXCEL OPENED</div>
-          <div>📍 Location: <strong>${log.city}, ${log.country}</strong></div>
-          <div>🎯 IP: <strong style="color: #38bdf8; font-family: monospace;">${log.ip}</strong></div>
-          <div>Threat: <strong>${log.threatLevel}</strong></div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.5; color: #e4e9ef;">
+          <b style="font-size: 13px; color: #f2a93b;">🐦 ${log.tokenName}</b><br/>
+          ${log.city}, ${log.country}<br/>
+          <span style="color: #8592a3;">${log.ip}</span><br/>
+          <span style="color: ${isCrit ? '#ef6a5b' : '#f2a93b'};">⚠️ ${log.threatLevel}</span>
         </div>
       `;
 
       marker.bindPopup(popupHtml);
       marker.on('click', () => onSelectLog(log));
-      markersRef.current.push(marker);
+
+      let circle: L.Circle | undefined;
+      if (!isNaN(log.latitude) && !isNaN(log.longitude)) {
+        const radius = log.threatLevel === 'Critical' ? 500000 : log.threatLevel === 'High' ? 300000 : 100000;
+        circle = L.circle([log.latitude, log.longitude], {
+          radius,
+          color: markerColor,
+          weight: 1,
+          opacity: 0.3,
+          fillOpacity: 0.05,
+          interactive: false,
+        }).addTo(map);
+      }
+
+      markersRef.current.set(log.id, { marker, circle });
     });
+
+    if (logs.length === 1) {
+      const log = logs[0];
+      map.flyTo([log.latitude, log.longitude], 8, { duration: 0.8 });
+    } else if (logs.length > 1) {
+      const bounds = L.latLngBounds(logs.map((l) => [l.latitude, l.longitude] as [number, number]));
+      map.flyToBounds(bounds.pad(0.2), { duration: 0.8, maxZoom: 8 });
+    }
   }, [logs, onSelectLog]);
 
   return (
