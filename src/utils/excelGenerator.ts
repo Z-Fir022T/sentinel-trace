@@ -1,5 +1,8 @@
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 import { ExcelScanResult, ExcelFinding } from '../types/threat';
+
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export interface DecoyTemplateConfig {
   id: string;
@@ -158,12 +161,12 @@ export const DECOY_TEMPLATES: Record<string, DecoyTemplateConfig> = {
 /**
  * Generate a real, downloadable .xlsx binary file containing the decoy data and embedded tracking formula
  */
-export function generateCanarySpreadsheet(
+export async function generateCanarySpreadsheet(
   templateId: string,
   beaconUrl: string,
   imageUrl: string,
   customFilename?: string
-): { blob: Blob; filename: string } {
+): Promise<{ blob: Blob; filename: string }> {
   const template = DECOY_TEMPLATES[templateId] || DECOY_TEMPLATES.payroll;
   const { sheetName, rows, cellFormulas } = template.generateData(beaconUrl, imageUrl);
 
@@ -191,7 +194,8 @@ export function generateCanarySpreadsheet(
       if (!ws[item.cell]) {
         ws[item.cell] = { t: 's', v: 'SYNC_PENDING' };
       }
-      ws[item.cell].f = item.formula;
+      // Post-2007 functions must carry the _xlfn. prefix inside the .xlsx or Excel shows #NAME? and never fires the beacon
+      ws[item.cell].f = item.formula.replace(/\b(WEBSERVICE|IMAGE)\(/g, '_xlfn.$1(');
     }
   }
 
@@ -208,8 +212,15 @@ export function generateCanarySpreadsheet(
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
   // Generate binary array
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+  const zip = await JSZip.loadAsync(wbout);
+  const workbookXml = await zip.file('xl/workbook.xml')!.async('string');
+  // Excel must recalculate on open or the WEBSERVICE/IMAGE beacons never fire
+  const patched = workbookXml.includes('<calcPr')
+    ? workbookXml.replace(/<calcPr([^>]*?)\/>/, (_m, attrs) => `<calcPr${attrs.replace(/\s*fullCalcOnLoad="[^"]*"/, '')} fullCalcOnLoad="1"/>`)
+    : workbookXml.replace('</workbook>', '<calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>');
+  zip.file('xl/workbook.xml', patched);
+  const blob = new Blob([await zip.generateAsync({ type: 'arraybuffer', mimeType: XLSX_MIME })], { type: XLSX_MIME });
 
   const filename = customFilename || template.defaultFilename;
   return { blob, filename };

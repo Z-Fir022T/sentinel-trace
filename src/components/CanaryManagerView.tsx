@@ -65,10 +65,10 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDownloadExcel = (token: CanaryToken) => {
+  const handleDownloadExcel = async (token: CanaryToken) => {
     const beaconUrl = getBeaconUrl(token.id);
     const imageUrl = getImageUrl(token.id);
-    const { blob, filename } = generateCanarySpreadsheet(token.decoyCategory, beaconUrl, imageUrl, token.filename);
+    const { blob, filename } = await generateCanarySpreadsheet(token.decoyCategory, beaconUrl, imageUrl, token.filename);
     downloadBlob(blob, filename);
   };
 
@@ -94,7 +94,7 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
       // Auto-trigger download of the newly generated document
       const beaconUrl = getBeaconUrl(created.id);
       const imageUrl = getImageUrl(created.id);
-      const { blob, filename } = generateCanarySpreadsheet(created.decoyCategory, beaconUrl, imageUrl, created.filename);
+      const { blob, filename } = await generateCanarySpreadsheet(created.decoyCategory, beaconUrl, imageUrl, created.filename);
       downloadBlob(blob, filename);
     }
   };
