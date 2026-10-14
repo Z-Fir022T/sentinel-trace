@@ -15,6 +15,30 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Disk persistence: survive restarts & adopt orphan tokens from old Excel files
+const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
+const DATA_FILE = path.join(DATA_DIR, 'canary_store.json');
+function loadStore(): { tokens: CanaryToken[]; logs: CanaryAccessLog[] } {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return { tokens: Array.isArray(parsed.tokens) ? parsed.tokens : [], logs: Array.isArray(parsed.logs) ? parsed.logs : [] };
+    }
+  } catch (err) {
+    console.error('[persist] Read failed:', err);
+  }
+  return { tokens: [], logs: [] };
+}
+function persistStore(tokens: CanaryToken[], logs: CanaryAccessLog[]) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ tokens, logs }, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[persist] Write failed:', err);
+  }
+}
+
 // Global CORS headers for Microsoft Excel and external telemetry clients
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -184,8 +208,7 @@ export interface BreachRecord {
   sourceType: 'Public Breach' | 'Infostealer Log (Redline/Lumma)' | 'Dark Web Dump' | 'Combolist';
 }
 
-const canaryTokens: CanaryToken[] = [];
-const accessLogs: CanaryAccessLog[] = [];
+const { tokens: canaryTokens, logs: accessLogs } = loadStore();
 
 // Helper: Inspect user agent for client type
 function parseClientType(userAgent: string = ''): 'Excel / Office Engine' | 'Web Browser' | 'Curl / Automated Bot' | 'Headless Script' {
@@ -367,6 +390,7 @@ app.post('/api/canary/create', (req: Request, res: Response) => {
   };
 
   canaryTokens.unshift(newToken);
+  persistStore(canaryTokens, accessLogs);
   res.json({ success: true, token: newToken });
 });
 
@@ -431,6 +455,7 @@ app.all(['/api/canary/ping/:tokenId', '/api/canary/ping'], async (req: Request, 
   };
 
   accessLogs.unshift(logEntry);
+  persistStore(canaryTokens, accessLogs);
 
   if (token) {
     token.hitsCount += 1;
@@ -497,6 +522,7 @@ app.get(['/api/canary/beacon.png', '/api/canary/beacon.gif'], async (req: Reques
   };
 
   accessLogs.unshift(logEntry);
+  persistStore(canaryTokens, accessLogs);
   if (token) {
     token.hitsCount += 1;
     token.lastHitAt = logEntry.timestamp;
@@ -542,6 +568,7 @@ app.post('/api/canary/logs/clear', (req: Request, res: Response) => {
   } else {
     accessLogs.length = 0;
   }
+  persistStore(canaryTokens, accessLogs);
   res.json({ success: true });
 });
 

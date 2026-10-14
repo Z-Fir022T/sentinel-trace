@@ -191,11 +191,8 @@ export async function generateCanarySpreadsheet(
   // Embed tracking formulas into specific cells
   if (cellFormulas && cellFormulas.length > 0) {
     for (const item of cellFormulas) {
-      if (!ws[item.cell]) {
-        ws[item.cell] = { t: 's', v: 'SYNC_PENDING' };
-      }
-      // Post-2007 functions must carry the _xlfn. prefix inside the .xlsx or Excel shows #NAME? and never fires the beacon
-      ws[item.cell].f = item.formula.replace(/\b(WEBSERVICE|IMAGE)\(/g, '_xlfn.$1(');
+      // Create cell with formula, no static value so Excel recalculates it (don't set v: 'SYNC_PENDING')
+      ws[item.cell] = { f: item.formula.replace(/\b(WEBSERVICE|IMAGE)\(/g, '_xlfn.$1(') };
     }
   }
 

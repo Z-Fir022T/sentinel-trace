@@ -33,3 +33,5 @@ yarn-error.log*
 # OS
 Thumbs.db
 .DS_Store
+# disk persistence store for canary tokens & access logs
+/data
