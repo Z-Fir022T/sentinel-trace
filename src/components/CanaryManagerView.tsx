@@ -38,9 +38,9 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
   const [selectedTemplate, setSelectedTemplate] = useState<string>('payroll');
   const [trackingType, setTrackingType] = useState<'excel_webservice' | 'excel_image' | 'web_beacon'>('excel_webservice');
   const [docName, setDocName] = useState<string>('Executive_Compensation_Q4_Audit.xlsx');
-  const [notifyEmail, setNotifyEmail] = useState<string>('soc-alerts@enterprise.internal');
+  const [notifyEmail, setNotifyEmail] = useState<string>('');
   const [associatedEmail, setAssociatedEmail] = useState<string>('');
-  const [notes, setNotes] = useState<string>('Planted in finance shared drive folder.');
+  const [notes, setNotes] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
@@ -287,7 +287,7 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
 
       {/* Modal: Deploy New Canary Document */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl p-6 space-y-5 my-8">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
               <div className="flex items-center gap-2.5">
@@ -385,8 +385,8 @@ export const CanaryManagerView: React.FC<CanaryManagerViewProps> = ({
               </div>
 
               {/* Filename, Monitored Email & Alert Email */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-medium text-zinc-300 mb-1">
                     Excel Filename (.xlsx)
                   </label>
