@@ -35,8 +35,10 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  const circlesRef = useRef<L.Circle[]>([]);
   const [testEmail, setTestEmail] = useState<string>(defaultEmail || 'ianhazael.a.l@gmail.com');
   const [activeScenario, setActiveScenario] = useState<string>('spain_madrid');
+  const [selectedMarker, setSelectedMarker] = useState<CanaryAccessLog | null>(null);
 
   // Initialize Leaflet Map
   useEffect(() => {
@@ -72,9 +74,11 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    // Clear existing markers
+    // Clear existing markers & circles
     markersRef.current.forEach((m) => m.remove());
+    circlesRef.current.forEach((c) => c.remove());
     markersRef.current = [];
+    circlesRef.current = [];
 
     logs.forEach((log) => {
       if (!log.latitude || !log.longitude) return;
@@ -84,87 +88,121 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
       const isCompromised = log.isEmailCompromised;
 
       const markerColor = isCrit ? '#ef4444' : isHigh ? '#f59e0b' : '#10b981';
+      const circleColor = isCrit ? '#dc2626' : isHigh ? '#d97706' : '#059669';
       const pulseClass = isCrit ? 'pulse-red' : isHigh ? 'pulse-amber' : 'pulse-emerald';
+
+      // Accuracy circle (50km radius for IP geolocation margin of error)
+      const circle = L.circle([log.latitude, log.longitude], {
+        radius: 50000,
+        color: circleColor,
+        weight: 1.5,
+        opacity: 0.25,
+        fillColor: circleColor,
+        fillOpacity: 0.08,
+        dashArray: '5, 5',
+      }).addTo(map);
 
       // Custom HTML Marker with pulsing aura
       const customIcon = L.divIcon({
         className: 'custom-canary-pin',
         html: `
-          <div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
-            <div style="position: absolute; width: 24px; height: 24px; border-radius: 50%; background: ${markerColor}; opacity: 0.35;" class="${pulseClass}"></div>
-            <div style="width: 12px; height: 12px; border-radius: 50%; background: ${markerColor}; border: 2px solid #09090b; box-shadow: 0 0 10px ${markerColor};"></div>
+          <div style="position: relative; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+            <div style="position: absolute; width: 28px; height: 28px; border-radius: 50%; background: ${markerColor}; opacity: 0.3;" class="${pulseClass}"></div>
+            <div style="width: 14px; height: 14px; border-radius: 50%; background: ${markerColor}; border: 2.5px solid #09090b; box-shadow: 0 0 12px ${markerColor}, inset 0 0 6px ${markerColor};"></div>
           </div>
         `,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-        popupAnchor: [0, -12],
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -14],
       });
 
       const marker = L.marker([log.latitude, log.longitude], { icon: customIcon }).addTo(map);
 
-      // Popup Content in Spanish with full technical clarity
+      // Enhanced Popup Content
       const popupHtml = `
-        <div style="font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.4; color: #f4f4f5; background: #09090b; padding: 4px; min-width: 240px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; border-bottom: 1px solid #27272a; padding-bottom: 4px;">
-            <span style="font-weight: 700; color: #10b981;">EXCEL ABIERTO EN VIVO</span>
-            <span style="font-size: 10px; background: ${isCrit ? '#7f1d1d' : '#27272a'}; color: ${isCrit ? '#fca5a5' : '#d4d4d8'}; padding: 1px 6px; border-radius: 4px; font-weight: bold;">
+        <div style="font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.4; color: #f4f4f5; background: #09090b; padding: 8px; min-width: 260px; border-radius: 6px; border: 1px solid #27272a;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #27272a; padding-bottom: 6px;">
+            <span style="font-weight: 700; color: #10b981; font-size: 13px;">📊 INCIDENT ALERT</span>
+            <span style="font-size: 10px; background: ${isCrit ? '#7f1d1d' : isHigh ? '#92400e' : '#064e3b'}; color: ${isCrit ? '#fca5a5' : isHigh ? '#fbbf24' : '#6ee7b7'}; padding: 2px 8px; border-radius: 3px; font-weight: bold; border: 1px solid ${isCrit ? '#dc2626' : isHigh ? '#d97706' : '#059669'};">
               ${log.threatLevel}
             </span>
           </div>
 
-          <div style="margin-bottom: 4px;">
-            <span style="color: #a1a1aa; font-size: 11px;">📍 Ubicación:</span>
-            <div style="font-weight: 600; color: #fff;">${log.city}, ${log.country}</div>
+          <div style="margin-bottom: 6px;">
+            <span style="color: #a1a1aa; font-size: 10px; display: block; margin-bottom: 2px;">📍 LOCATION</span>
+            <div style="font-weight: 600; color: #fff; font-size: 12px;">${log.city}, ${log.country}</div>
+            <div style="font-size: 10px; color: #71717a; margin-top: 1px;">${log.latitude?.toFixed(4)}, ${log.longitude?.toFixed(4)}</div>
           </div>
 
-          <div style="margin-bottom: 4px;">
-            <span style="color: #a1a1aa; font-size: 11px;">🎯 IP del Atacante:</span>
-            <div style="font-family: monospace; font-weight: bold; color: #38bdf8; font-size: 13px;">${log.ip}</div>
-            <div style="color: #71717a; font-size: 10px;">${log.asn}</div>
+          <div style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #27272a;">
+            <span style="color: #a1a1aa; font-size: 10px; display: block; margin-bottom: 2px;">🎯 ATTACKER IP</span>
+            <div style="font-family: 'Courier New', monospace; font-weight: bold; color: #38bdf8; font-size: 13px;">${log.ip}</div>
+            <div style="color: #71717a; font-size: 10px;">${log.isp} (${log.asn})</div>
           </div>
 
-          <div style="margin-bottom: 4px;">
-            <span style="color: #a1a1aa; font-size: 11px;">📄 Documento Trampa:</span>
+          <div style="margin-bottom: 6px;">
+            <span style="color: #a1a1aa; font-size: 10px; display: block; margin-bottom: 2px;">📄 TARGET DOCUMENT</span>
             <div style="font-weight: 500; color: #e4e4e7; font-size: 11px;">${log.tokenName}</div>
           </div>
 
-          <div style="margin-top: 6px; padding: 6px; border-radius: 6px; background: ${isCompromised ? 'rgba(127, 29, 29, 0.4)' : 'rgba(6, 78, 59, 0.4)'}; border: 1px solid ${isCompromised ? '#dc2626' : '#059669'};">
-            <span style="font-size: 10px; color: ${isCompromised ? '#fca5a5' : '#6ee7b7'}; font-weight: bold; display: block;">
-              ${isCompromised ? '⚠️ CORREO COMPROMETIDO ENCONTRADO' : '✅ CORREO SIN FILTRACIONES'}
+          <div style="margin: 8px 0; padding: 8px; border-radius: 4px; background: ${isCompromised ? 'rgba(127, 29, 29, 0.5)' : 'rgba(6, 78, 59, 0.5)'}; border-left: 3px solid ${isCompromised ? '#dc2626' : '#059669'};">
+            <span style="font-size: 10px; color: ${isCompromised ? '#fca5a5' : '#6ee7b7'}; font-weight: bold; display: block; margin-bottom: 3px;">
+              ${isCompromised ? '🚨 EMAIL COMPROMISED' : '✅ EMAIL CLEAN'}
             </span>
-            <div style="font-family: monospace; font-size: 11px; color: #fff;">${log.associatedEmail || 'Sin correo asociado'}</div>
+            <div style="font-family: monospace; font-size: 10px; color: #fff;">${log.associatedEmail || 'N/A'}</div>
             ${
               isCompromised
-                ? `<div style="font-size: 10px; color: #fca5a5; margin-top: 2px;">Detectado en ${log.emailBreachCount || 3} filtraciones (Stealer Logs/DarkWeb).</div>`
+                ? `<div style="font-size: 9px; color: #fca5a5; margin-top: 3px;">Found in ${log.emailBreachCount || 3} breach(es)</div>`
                 : ''
             }
           </div>
 
-          <div style="margin-top: 6px; font-size: 10px; color: #71717a;">
-            Motor: ${log.clientType} &middot; ${new Date(log.timestamp).toLocaleTimeString()}
+          <div style="font-size: 9px; color: #71717a; text-align: right;">
+            ${new Date(log.timestamp).toLocaleString()} · ${log.clientType}
           </div>
         </div>
       `;
 
       marker.bindPopup(popupHtml, {
         className: 'dark-cyber-popup',
+        maxWidth: 300,
+        minWidth: 260,
       });
 
       marker.on('click', () => {
         onSelectLog(log);
+        setSelectedMarker(log);
+        marker.openPopup();
       });
 
       markersRef.current.push(marker);
+      circlesRef.current.push(circle);
     });
   }, [logs, onSelectLog]);
 
-  // Fly to selected log if provided
+  // Fly to selected log with enhanced animation
   useEffect(() => {
     if (!selectedLog || !mapInstanceRef.current) return;
     if (selectedLog.latitude && selectedLog.longitude) {
-      mapInstanceRef.current.flyTo([selectedLog.latitude, selectedLog.longitude], 8, {
-        duration: 1.5,
-      });
+      const map = mapInstanceRef.current;
+      const targetZoom = 10;
+      const animOptions = {
+        duration: 1.2,
+        easeLinearity: 0.25,
+      };
+
+      map.flyTo([selectedLog.latitude, selectedLog.longitude], targetZoom, animOptions);
+
+      // Open popup after animation settles
+      setTimeout(() => {
+        const selectedMarker = markersRef.current.find(
+          (m) => m.getLatLng().lat === selectedLog.latitude &&
+                 m.getLatLng().lng === selectedLog.longitude
+        );
+        if (selectedMarker) {
+          selectedMarker.openPopup();
+        }
+      }, 1300);
     }
   }, [selectedLog]);
 

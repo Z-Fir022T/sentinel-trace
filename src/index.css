@@ -1,1 +1,81 @@
 @import "tailwindcss";
+
+/* Leaflet map customizations */
+.leaflet-popup-content-wrapper {
+  background: #09090b !important;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
+  border: 1px solid #27272a;
+}
+
+.leaflet-popup-tip {
+  background: #09090b !important;
+  border-color: #27272a;
+}
+
+.dark-cyber-popup {
+  /* Popup styling container */
+}
+
+.dark-cyber-popup .leaflet-popup-content {
+  margin: 0;
+  padding: 0;
+}
+
+/* Pulsing animations for threat markers */
+@keyframes pulse-red {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes pulse-amber {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.12;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes pulse-emerald {
+  0%, 100% {
+    opacity: 0.25;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.1;
+    transform: scale(1.1);
+  }
+}
+
+.pulse-red {
+  animation: pulse-red 2.5s ease-in-out infinite;
+}
+
+.pulse-amber {
+  animation: pulse-amber 2.5s ease-in-out infinite;
+}
+
+.pulse-emerald {
+  animation: pulse-emerald 2.5s ease-in-out infinite;
+}
+
+/* Custom marker styling */
+.custom-canary-pin {
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.8));
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.custom-canary-pin:hover {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.9));
+}
