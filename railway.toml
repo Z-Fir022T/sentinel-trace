@@ -1,0 +1,7 @@
+[build]
+dockerfile = "Dockerfile"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/api/system/config"
+healthcheckTimeout = 30
