@@ -56,9 +56,10 @@ export const LiveLeafletMap: React.FC<LiveLeafletMapProps> = ({
     });
 
     // Dark-themed high contrast tiles for cyber defense SOC
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      subdomains: 'abcd',
+      attribution: '&copy; OpenStreetMap',
+      className: 'osm-dark-tiles',
     }).addTo(map);
 
     mapInstanceRef.current = map;
