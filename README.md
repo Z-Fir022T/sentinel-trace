@@ -1,81 +1,34 @@
-# SentinelTrace
+# SentinelTrace - Defensive Canary & Threat Triage Platform
 
-Defensive cybersecurity suite for generating tracking canary spreadsheets, inspecting document beacons, auditing compromised emails, and analyzing IP intelligence.
+Sistema de ciberdefensa para generar hojas de cálculo Excel trampa (honeytokens), detectar IP de atacantes, auditar correos comprometidos e inspeccionar documentos maliciosos.
 
-## Features
+## Requisitos Previos
+- Node.js versión 18 o superior
+- npm
 
-- 🐦 **Canary Token Generator**: Create honeytoken Excel spreadsheets with embedded beacons
-- 📊 **Live Map**: Real-time visualization of attacker locations via IP geolocation
-- ⚠️ **Email Breach Audit**: Check if emails/domains appear in known breach databases
-- 🔍 **File Inspector**: Analyze Excel files for tracking formulas and beacons
-- 🌍 **IP Intelligence**: Lookup IP details (geolocation, ISP, datacenter detection)
-
-## Local Development
-
+## Instalación y Ejecución Rápida
 ```bash
+# 1. Instalar dependencias
 npm install
+
+# 2. Iniciar en modo desarrollo
 npm run dev
 ```
-
-Server runs on `http://localhost:3000`
-
-## Production Deployment
-
-### Deploy to Railway
-
-1. Create Railway account at [railway.app](https://railway.app)
-2. Install Railway CLI:
-   ```bash
-   npm install -g @railway/cli
-   ```
-3. Login and deploy:
-   ```bash
-   railway login
-   cd sentinel-trace
-   railway up
-   ```
-
-Or use Railway dashboard:
-1. Create new project
-2. Connect GitHub repository (fork this repo)
-3. Set environment variable `APP_URL` to your Railway domain
-4. Deploy automatically
-
-### Environment Variables
-
-```env
-NODE_ENV=production
-PORT=3000
-APP_URL=https://your-domain.railway.app
+Abre en tu navegador:
+```
+http://localhost:3000
 ```
 
-## API Endpoints
-
-- `GET /api/system/config` - System configuration
-- `GET /api/canary/tokens` - List all canary tokens
-- `POST /api/canary/create` - Create new token
-- `GET/POST /api/canary/ping/:tokenId` - Register token access
-- `GET /api/canary/logs` - Access logs
-- `POST /api/canary/simulate-attacker` - Simulate attacker scenario
-- `POST /api/breach/check` - Check email breach status
-- `GET /api/ip/lookup/:ip` - Lookup IP details
-
-## Architecture
-
-- **Backend**: Express.js + TypeScript
-- **Frontend**: React 19 + Vite + TailwindCSS
-- **Maps**: Leaflet + OpenStreetMap
-- **Excel**: XLSX library
-- **IP Lookup**: ip-api.com
-
-## Build
-
-```bash
-npm run build
-```
-
-Outputs to `dist/` directory.
-
-## License
-
-Defensive security use only.
+## Despliegue en un Servidor VPS (Producción)
+1. Compilar para producción:
+   ```bash
+   npm run build
+   ```
+2. Iniciar el servidor:
+   ```bash
+   npm start
+   ```
+3. Si utilizas un dominio o IP pública fija, define en tu archivo `.env`:
+   ```env
+   APP_URL="https://tu-dominio.com"
+   ```

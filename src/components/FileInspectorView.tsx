@@ -1,87 +1,293 @@
 import React, { useState } from 'react';
-import { Upload } from 'lucide-react';
-import { analyzeExcelFile } from '../utils/excelGenerator';
+import { 
+  FileSpreadsheet, 
+  Upload, 
+  ShieldAlert, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Search, 
+  FileCheck, 
+  FileX, 
+  Eye, 
+  Code, 
+  UserCheck, 
+  RefreshCw,
+  ExternalLink,
+  ShieldCheck,
+  Zap
+} from 'lucide-react';
 import { ExcelScanResult } from '../types/threat';
+import { analyzeExcelFile, generateCanarySpreadsheet } from '../utils/excelGenerator';
 
 export const FileInspectorView: React.FC = () => {
-  const [result, setResult] = useState<ExcelScanResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<ExcelScanResult | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
-  const handleFileSelect = async (file: File) => {
-    setLoading(true);
+  const handleFileUpload = async (file: File) => {
+    setIsScanning(true);
     try {
-      const res = await analyzeExcelFile(file);
-      setResult(res);
+      const result = await analyzeExcelFile(file);
+      setScanResult(result);
     } catch (err) {
-      console.error('Error analyzing file:', err);
+      console.error('Failed to parse file:', err);
     } finally {
-      setLoading(false);
+      setIsScanning(false);
     }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileUpload(e.dataTransfer.files[0]);
+    }
+  };
+
+  // Inspect sample tracking document
+  const handleInspectTrackingSample = async () => {
+    setIsScanning(true);
+    const { blob } = generateCanarySpreadsheet(
+      'payroll',
+      'https://sentinel-defense.corp/api/canary/ping/cnry-sample-target-ip',
+      'https://sentinel-defense.corp/api/canary/beacon.png'
+    );
+    const sampleFile = new File([blob], 'Confidential_Executive_Payroll_Sample.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const result = await analyzeExcelFile(sampleFile);
+    setScanResult(result);
+    setIsScanning(false);
+  };
+
+  // Inspect clean document sample
+  const handleInspectCleanSample = async () => {
+    setIsScanning(true);
+    // Create pure clean CSV/XLSX
+    const content = 'Month,Revenue,Expenses,Net Profit\nJan,12000,8000,=B2-C2\nFeb,15000,9000,=B3-C3\nMar,18000,9500,=B4-C4';
+    const sampleFile = new File([content], 'Clean_Financial_Quarterly_Report.csv', { type: 'text/csv' });
+    const result = await analyzeExcelFile(sampleFile);
+    setScanResult(result);
+    setIsScanning(false);
   };
 
   return (
     <div className="space-y-6">
-      <div className="p-8 rounded-lg bg-zinc-900 border-2 border-dashed border-zinc-700 text-center cursor-pointer hover:border-emerald-600 hover:bg-zinc-900/50 transition-all">
-        <Upload className="w-8 h-8 text-zinc-400 mx-auto mb-3" />
-        <input
-          type="file"
-          accept=".xlsx,.xls"
-          onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-          className="hidden"
-          id="file-input"
-        />
-        <label htmlFor="file-input" className="cursor-pointer">
-          <p className="text-white font-semibold mb-1">Upload Excel File</p>
-          <p className="text-sm text-zinc-400">Drag and drop or click to select</p>
-        </label>
+      {/* Top Header */}
+      <div className="p-6 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-2">
+        <h2 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
+          <Search className="w-5 h-5 text-emerald-400" />
+          Defensive Excel Beacon &amp; Tracker Inspector
+        </h2>
+        <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
+          Upload any received Excel spreadsheet (.xlsx, .xls, .csv) to detect whether it contains hidden tracking formulas (<code className="text-cyan-300 font-mono">=WEBSERVICE</code>, <code className="text-cyan-300 font-mono">=IMAGE</code>), outbound web queries, hidden worksheets, or external exfiltration hooks designed to log your IP.
+        </p>
       </div>
 
-      {loading && <div className="text-center text-zinc-400">Analyzing file...</div>}
+      {/* Drag & Drop Upload Zone */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`p-8 rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center text-center gap-3 cursor-pointer ${
+          dragOver
+            ? 'border-emerald-500 bg-emerald-950/20'
+            : 'border-zinc-700/80 bg-zinc-900/50 hover:border-zinc-600 hover:bg-zinc-900'
+        }`}
+      >
+        <div className="p-3 rounded-full bg-zinc-800 text-emerald-400">
+          <Upload className="w-6 h-6" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-zinc-200">
+            Drag &amp; drop an Excel spreadsheet here, or browse files
+          </p>
+          <p className="text-xs text-zinc-500 mt-1">
+            Supports .xlsx, .xls, .xlsm, .csv files (Scanned locally in memory, no data leaves your browser)
+          </p>
+        </div>
 
-      {result && (
-        <div className="p-5 rounded-lg bg-zinc-900 border border-zinc-800 space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <div className="text-xs text-zinc-400">Filename</div>
-              <div className="font-semibold text-white text-sm">{result.filename}</div>
-            </div>
-            <div>
-              <div className="text-xs text-zinc-400">File Size</div>
-              <div className="font-semibold text-white">{(result.fileSize / 1024).toFixed(2)} KB</div>
-            </div>
-            <div>
-              <div className="text-xs text-zinc-400">Sheets</div>
-              <div className="font-semibold text-white">{result.sheetCount}</div>
-            </div>
-            <div>
-              <div className="text-xs text-zinc-400">Risk Rating</div>
-              <div className={`font-semibold ${result.isTrackingDetected ? 'text-red-400' : 'text-green-400'}`}>
-                {result.riskRating}
+        <input
+          type="file"
+          id="excel-file-input"
+          accept=".xlsx,.xls,.xlsm,.csv"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              handleFileUpload(e.target.files[0]);
+            }
+          }}
+        />
+        <label
+          htmlFor="excel-file-input"
+          className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold cursor-pointer border border-zinc-700 transition-colors"
+        >
+          Select Spreadsheet File
+        </label>
+
+        {/* Demo buttons */}
+        <div className="pt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-zinc-500 font-mono">Test Inspection With Pre-built Samples:</span>
+          <button
+            onClick={handleInspectTrackingSample}
+            disabled={isScanning}
+            className="px-2.5 py-1 text-xs rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-amber-300 font-medium transition-colors flex items-center gap-1.5"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span>Sample With Tracking Beacon</span>
+          </button>
+          <button
+            onClick={handleInspectCleanSample}
+            disabled={isScanning}
+            className="px-2.5 py-1 text-xs rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-emerald-300 font-medium transition-colors flex items-center gap-1.5"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Sample Clean Spreadsheet</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Loading state */}
+      {isScanning && (
+        <div className="p-8 rounded-xl bg-zinc-900 border border-zinc-800 text-center space-y-2">
+          <RefreshCw className="w-6 h-6 animate-spin text-emerald-400 mx-auto" />
+          <p className="text-xs text-zinc-300 font-mono">Deconstructing spreadsheet XML and auditing formulas for outbound sockets...</p>
+        </div>
+      )}
+
+      {/* Scan Results View */}
+      {scanResult && !isScanning && (
+        <div className="space-y-6">
+          {/* Main Verdict Card */}
+          <div
+            className={`p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+              scanResult.isTrackingDetected
+                ? 'bg-gradient-to-r from-red-950/40 via-red-900/20 to-zinc-900 border-red-800/80'
+                : 'bg-gradient-to-r from-emerald-950/40 via-emerald-900/20 to-zinc-900 border-emerald-800/80'
+            }`}
+          >
+            <div className="flex items-start gap-4">
+              <div
+                className={`p-3 rounded-xl border shrink-0 ${
+                  scanResult.isTrackingDetected
+                    ? 'bg-red-950 text-red-400 border-red-700/60 animate-pulse'
+                    : 'bg-emerald-950 text-emerald-400 border-emerald-700/60'
+                }`}
+              >
+                {scanResult.isTrackingDetected ? <AlertTriangle className="w-7 h-7" /> : <CheckCircle2 className="w-7 h-7" />}
               </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-zinc-100 text-sm font-sans">{scanResult.filename}</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                      scanResult.isTrackingDetected
+                        ? 'bg-red-900 text-red-100 border border-red-700'
+                        : 'bg-emerald-900 text-emerald-100 border border-emerald-700'
+                    }`}
+                  >
+                    VERDICT: {scanResult.riskRating.toUpperCase()}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-300 mt-1 max-w-2xl leading-relaxed">
+                  {scanResult.isTrackingDetected
+                    ? 'WARNING: This document contains active tracking formulas that transmit your IP address to an external server when opened in Microsoft Excel. Do NOT open in standard calculation mode.'
+                    : 'No tracking formulas, external web beacons, or suspicious exfiltration URLs were discovered. The document appears safe.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Document Metadata stats */}
+            <div className="bg-zinc-950/80 p-3 rounded-xl border border-zinc-800 font-mono text-xs space-y-1 text-zinc-400 shrink-0">
+              <div>SHEETS: <span className="text-zinc-200">{scanResult.sheetCount}</span></div>
+              <div>FILE SIZE: <span className="text-zinc-200">{(scanResult.fileSize / 1024).toFixed(1)} KB</span></div>
+              {scanResult.author && <div>AUTHOR: <span className="text-zinc-200">{scanResult.author}</span></div>}
             </div>
           </div>
 
-          {result.findings.length > 0 && (
-            <div className="border-t border-zinc-700 pt-4">
-              <h3 className="font-semibold text-white mb-3">Findings</h3>
-              <div className="space-y-2">
-                {result.findings.map((f, i) => (
-                  <div key={i} className="p-3 rounded-lg bg-zinc-950 border border-red-800">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="font-semibold text-red-300">{f.type}</div>
-                        <div className="text-xs text-zinc-400">{f.location}</div>
-                        <div className="text-sm text-zinc-300 mt-1">{f.description}</div>
-                      </div>
-                      <span className="text-xs bg-red-900 text-red-200 px-2 py-1 rounded">
-                        {f.severity}
-                      </span>
-                    </div>
+          {/* Extracted Outbound URLs & Endpoints */}
+          {scanResult.extractedUrls.length > 0 && (
+            <div className="p-4 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-2">
+              <span className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
+                <ExternalLink className="w-4 h-4 text-amber-400" />
+                Detected Outbound Beacon Destinations (Destination URLs)
+              </span>
+              <div className="space-y-1.5 pt-1">
+                {scanResult.extractedUrls.map((url, idx) => (
+                  <div
+                    key={idx}
+                    className="p-2.5 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-xs text-red-400 flex items-center justify-between gap-3 overflow-hidden"
+                  >
+                    <span className="truncate select-all">{url}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800 shrink-0">
+                      IP LOGGER TARGET
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {/* Detailed Findings Table */}
+          <div className="p-5 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-3">
+            <h3 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-emerald-400" />
+              Detailed Forensic Audit Breakdown ({scanResult.findings.length} findings)
+            </h3>
+
+            {scanResult.findings.length === 0 ? (
+              <div className="py-6 text-center text-xs text-zinc-400">
+                Clean spreadsheet. No outbound network calls detected.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {scanResult.findings.map((finding, idx) => (
+                  <div
+                    key={idx}
+                    className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+                            finding.severity === 'Critical'
+                              ? 'bg-red-950 text-red-300 border border-red-800'
+                              : finding.severity === 'High'
+                              ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                              : 'bg-zinc-800 text-zinc-400'
+                          }`}
+                        >
+                          {finding.severity}
+                        </span>
+                        <span className="font-mono text-xs text-zinc-300 font-semibold">
+                          Location: {finding.location}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-zinc-500 font-mono capitalize">
+                        Type: {finding.type.replace('_', ' ')}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-zinc-300 leading-relaxed font-sans">
+                      {finding.description}
+                    </p>
+
+                    <div className="p-2 rounded bg-zinc-900/90 border border-zinc-800 font-mono text-xs text-cyan-300 overflow-x-auto">
+                      <code>{finding.value}</code>
+                    </div>
+
+                    <div className="text-[11px] text-emerald-400 flex items-center gap-1 pt-1 font-sans">
+                      <span className="text-zinc-500 font-mono">Remediation:</span>
+                      <span>{finding.remediation}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

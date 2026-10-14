@@ -44,6 +44,18 @@ export interface CanaryAccessLog {
   rawHeaders: Record<string, string | string[] | undefined>;
 }
 
+export interface BreachRecord {
+  breachName: string;
+  breachDate: string;
+  domain: string;
+  compromisedAccounts: number;
+  dataClasses: string[];
+  description: string;
+  verified: boolean;
+  severity: 'Critical' | 'High' | 'Medium';
+  sourceType: 'Public Breach' | 'Infostealer Log (Redline/Lumma)' | 'Dark Web Dump' | 'Combolist';
+}
+
 export interface EmailBreachAuditResult {
   success: boolean;
   query: string;
@@ -52,16 +64,22 @@ export interface EmailBreachAuditResult {
   isCompromised: boolean;
   riskScore: number;
   breachCount: number;
-  breaches: any[];
+  breaches: BreachRecord[];
   exposedDataClasses: string[];
-  recommendedActions: any[];
+  recommendedActions: {
+    id: string;
+    title: string;
+    detail: string;
+    priority: string;
+    category: string;
+  }[];
   checkedAt: string;
 }
 
 export interface ExcelFinding {
-  type: string;
+  type: 'formula_beacon' | 'image_beacon' | 'hyperlink' | 'hidden_sheet' | 'suspicious_macro_indicator' | 'metadata_leak';
   location: string;
-  severity: string;
+  severity: 'Critical' | 'High' | 'Medium' | 'Low';
   description: string;
   value: string;
   remediation: string;
@@ -75,7 +93,7 @@ export interface ExcelScanResult {
   author?: string;
   lastModifiedBy?: string;
   isTrackingDetected: boolean;
-  riskRating: string;
+  riskRating: 'Clean' | 'Low Risk' | 'Medium Risk' | 'High Risk - Tracking Active' | 'Critical';
   findings: ExcelFinding[];
   extractedUrls: string[];
 }
